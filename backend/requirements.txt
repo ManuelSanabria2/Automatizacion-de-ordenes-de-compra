@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+python-multipart
+supabase
+google-genai
+pandas
+openpyxl
+python-docx
+rapidfuzz
+num2words

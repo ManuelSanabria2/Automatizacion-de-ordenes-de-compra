@@ -1,0 +1,39 @@
+# ── Secretos ─────────────────────────────────────────────
+# Los .env y .env.local NUNCA se suben (en ningún nivel del repo)
+.env
+**/.env
+.env.local
+**/.env.local
+.env*.local
+!.env.example
+!**/.env.example
+
+# ── Python (backend) ─────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ── Next.js / Node (app) ─────────────────────────────────
+# (app/.gitignore generado por create-next-app también aplica)
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+npm-debug.log*
+
+# ── IDEs y sistema ───────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

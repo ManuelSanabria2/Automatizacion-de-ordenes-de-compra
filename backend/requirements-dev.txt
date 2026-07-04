@@ -1,0 +1,2 @@
+# Dependencias solo de desarrollo/test
+psycopg[binary]
