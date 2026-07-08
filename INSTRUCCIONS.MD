@@ -57,10 +57,16 @@ create table contador_ordenes (
   ultimo_numero int not null default 0
 );
 
--- Catálogo interno — nombres oficiales de la empresa
+-- Catálogo interno — espejo del Excel "Requisición Abastecimientos"
+-- (hoja Catalogo: Grupo | Codigo | Item | Unidad). Debe mantener exactamente
+-- el mismo nombre (Item) y código de ese archivo. Ni el código ni el nombre
+-- son únicos por sí solos (códigos genéricos reutilizados, nombres repetidos
+-- en grupos distintos); la combinación nombre + código sí es única.
 create table productos_empresa (
   id uuid primary key default gen_random_uuid(),
   nombre_oficial text not null,
+  codigo text,
+  grupo text,
   unidad_default text,
   tasa_iva_default numeric default 19,
   created_at timestamptz default now()

@@ -3,6 +3,17 @@
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+const CLAVE_API = process.env.NEXT_PUBLIC_CLAVE_API;
+
+/** fetch contra el backend: antepone API_URL y adjunta la clave API
+ *  (header X-API-Key) si está configurada. Usar siempre este wrapper en vez
+ *  de fetch crudo para que todas las llamadas queden autenticadas. */
+export function fetchApi(ruta: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (CLAVE_API) headers.set("X-API-Key", CLAVE_API);
+  return fetch(`${API_URL}${ruta}`, { ...init, headers });
+}
+
 // --- Extracción de cotizaciones (extraccion_cotizaciones.py) ---------------
 
 export interface ProveedorExtraido {
@@ -32,6 +43,7 @@ export type OrigenResolucion = "alias" | "fuzzy" | "gemini" | "sin_match";
 export interface Candidato {
   producto_empresa_id: string;
   nombre_oficial: string;
+  codigo: string | null;
   score: number;
   justificacion: string | null;
 }
@@ -53,6 +65,8 @@ export interface RespuestaResolucion {
 export interface Producto {
   id: string;
   nombre_oficial: string;
+  codigo: string | null;
+  grupo: string | null;
   unidad_default: string | null;
   tasa_iva_default: number;
 }
@@ -99,7 +113,7 @@ export interface OrdenResumen {
  *  Devuelve un mensaje de error, o null si se abrió correctamente. */
 export async function abrirDocumentoOrden(ordenId: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_URL}/ordenes/${ordenId}/documento`);
+    const res = await fetchApi(`/ordenes/${ordenId}/documento`);
     if (!res.ok) return await extraerDetalle(res, "No se pudo obtener el documento");
     const { url } = (await res.json()) as { url: string };
     window.open(url, "_blank", "noopener");

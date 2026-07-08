@@ -1,0 +1,31 @@
+# Blueprint de Render para el backend FastAPI.
+# El frontend Next.js se despliega aparte en Vercel (ver DEPLOY.md).
+
+services:
+  - type: web
+    name: ordenes-compra-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Misma versión probada en desarrollo
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      # Secretos: se cargan a mano en el dashboard de Render (sync: false)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Clave compartida con el frontend (header X-API-Key). Generar con:
+      # openssl rand -hex 32
+      - key: CLAVE_API_BACKEND
+        sync: false
+      # Dominio del frontend en Vercel (separar con comas si hay varios)
+      - key: ORIGENES_CORS
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

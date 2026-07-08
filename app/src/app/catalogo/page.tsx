@@ -1,48 +1,47 @@
 "use client";
 
-// Catálogo de productos oficiales de la empresa: listar, buscar por nombre,
-// crear y editar (nombre oficial, unidad y tasa de IVA por defecto).
-// Los alias por proveedor se gestionan aparte (pendiente).
+// Catálogo de productos oficiales de la empresa: listar, buscar por nombre o
+// código, crear y editar. Es espejo del Excel "Requisición Abastecimientos"
+// (mismo nombre, código y grupo). Los alias por proveedor se gestionan aparte.
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ERROR_CONEXION, extraerDetalle, fetchApi } from "@/lib/api";
 
 interface Producto {
   id: string;
   nombre_oficial: string;
+  codigo: string | null;
+  grupo: string | null;
   unidad_default: string | null;
   tasa_iva_default: number;
 }
 
 interface FormularioProducto {
   nombre: string;
+  codigo: string;
+  grupo: string;
   unidad: string;
   tasaIva: string;
 }
 
-const FORMULARIO_VACIO: FormularioProducto = { nombre: "", unidad: "", tasaIva: "19" };
+const FORMULARIO_VACIO: FormularioProducto = {
+  nombre: "",
+  codigo: "",
+  grupo: "",
+  unidad: "",
+  tasaIva: "19",
+};
 
 function cuerpoProducto(form: FormularioProducto) {
   return {
     nombre_oficial: form.nombre.trim(),
+    codigo: form.codigo.trim() || null,
+    grupo: form.grupo.trim() || null,
     unidad_default: form.unidad.trim() || null,
     tasa_iva_default: Number(form.tasaIva),
   };
 }
-
-async function extraerDetalle(res: Response, porDefecto: string): Promise<string> {
-  try {
-    const datos = await res.json();
-    if (typeof datos.detail === "string") return datos.detail;
-    // Errores de validación de FastAPI (422): lista de objetos con `msg`.
-    if (Array.isArray(datos.detail) && datos.detail[0]?.msg) return datos.detail[0].msg;
-  } catch {
-    // cuerpo no-JSON: se usa el mensaje por defecto
-  }
-  return porDefecto;
-}
-
-const ERROR_CONEXION =
-  "No se pudo conectar con el servidor. Verifica que el backend esté activo.";
 
 export default function CatalogoPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -66,9 +65,10 @@ export default function CatalogoPage() {
       setCargando(true);
       setErrorLista(null);
       try {
-        const url = new URL(`${process.env.NEXT_PUBLIC_API_URL}/catalogo/productos`);
-        if (termino) url.searchParams.set("buscar", termino);
-        const res = await fetch(url, { signal: controlador.signal });
+        const consulta = termino ? `?buscar=${encodeURIComponent(termino)}` : "";
+        const res = await fetchApi(`/catalogo/productos${consulta}`, {
+          signal: controlador.signal,
+        });
         if (!res.ok) {
           setErrorLista(await extraerDetalle(res, "Error al cargar el catálogo"));
           return;
@@ -93,7 +93,7 @@ export default function CatalogoPage() {
     setCreando(true);
     setErrorCrear(null);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/catalogo/productos`, {
+      const res = await fetchApi("/catalogo/productos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cuerpoProducto(nuevo)),
@@ -116,14 +116,11 @@ export default function CatalogoPage() {
     setGuardando(true);
     setErrorEditar(null);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/catalogo/productos/${edicion.id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(cuerpoProducto(edicion)),
-        },
-      );
+      const res = await fetchApi(`/catalogo/productos/${edicion.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cuerpoProducto(edicion)),
+      });
       if (!res.ok) {
         setErrorEditar(await extraerDetalle(res, "Error al guardar los cambios"));
         return;
@@ -142,6 +139,8 @@ export default function CatalogoPage() {
     setEdicion({
       id: producto.id,
       nombre: producto.nombre_oficial,
+      codigo: producto.codigo ?? "",
+      grupo: producto.grupo ?? "",
       unidad: producto.unidad_default ?? "",
       tasaIva: String(producto.tasa_iva_default),
     });
@@ -153,11 +152,20 @@ export default function CatalogoPage() {
 
   return (
     <main className="p-8 max-w-4xl mx-auto flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Catálogo de productos</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Nombres oficiales de la empresa, con su unidad y tasa de IVA por defecto.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Catálogo de productos</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            Espejo del Excel «Requisición Abastecimientos»: mismo nombre, código y
+            grupo, con su unidad y tasa de IVA por defecto.
+          </p>
+        </div>
+        <Link
+          href="/catalogo/importar"
+          className="shrink-0 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Importar desde Excel
+        </Link>
       </div>
 
       <form onSubmit={manejarCrear} className="flex flex-col gap-3 rounded border border-gray-200 p-4">
@@ -173,10 +181,24 @@ export default function CatalogoPage() {
           />
           <input
             type="text"
-            placeholder="Unidad (ej. UND, ML)"
+            placeholder="Código"
+            value={nuevo.codigo}
+            onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })}
+            className={`${claseInput} w-full sm:w-36`}
+          />
+          <input
+            type="text"
+            placeholder="Grupo"
+            value={nuevo.grupo}
+            onChange={(e) => setNuevo({ ...nuevo, grupo: e.target.value })}
+            className={`${claseInput} w-full sm:w-44`}
+          />
+          <input
+            type="text"
+            placeholder="Unidad"
             value={nuevo.unidad}
             onChange={(e) => setNuevo({ ...nuevo, unidad: e.target.value })}
-            className={`${claseInput} w-full sm:w-40`}
+            className={`${claseInput} w-full sm:w-32`}
           />
           <input
             type="number"
@@ -207,7 +229,7 @@ export default function CatalogoPage() {
 
       <input
         type="search"
-        placeholder="Buscar por nombre…"
+        placeholder="Buscar por nombre o código…"
         value={buscar}
         onChange={(e) => setBuscar(e.target.value)}
         className={claseInput}
@@ -237,9 +259,11 @@ export default function CatalogoPage() {
           <table className="w-full text-sm border border-gray-200">
             <thead>
               <tr className="bg-gray-50 text-left">
+                <th className="px-4 py-2 border-b border-gray-200 w-36">Código</th>
                 <th className="px-4 py-2 border-b border-gray-200">Nombre oficial</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-36">Unidad</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-28">IVA (%)</th>
+                <th className="px-4 py-2 border-b border-gray-200 w-52">Grupo</th>
+                <th className="px-4 py-2 border-b border-gray-200 w-28">Unidad</th>
+                <th className="px-4 py-2 border-b border-gray-200 w-24">IVA (%)</th>
                 <th className="px-4 py-2 border-b border-gray-200 w-44"></th>
               </tr>
             </thead>
@@ -250,9 +274,25 @@ export default function CatalogoPage() {
                     <td className="px-4 py-2 border-b border-gray-100">
                       <input
                         type="text"
+                        value={edicion.codigo}
+                        onChange={(e) => setEdicion({ ...edicion, codigo: e.target.value })}
+                        className={claseInputFila}
+                      />
+                    </td>
+                    <td className="px-4 py-2 border-b border-gray-100">
+                      <input
+                        type="text"
                         required
                         value={edicion.nombre}
                         onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })}
+                        className={claseInputFila}
+                      />
+                    </td>
+                    <td className="px-4 py-2 border-b border-gray-100">
+                      <input
+                        type="text"
+                        value={edicion.grupo}
+                        onChange={(e) => setEdicion({ ...edicion, grupo: e.target.value })}
                         className={claseInputFila}
                       />
                     </td>
@@ -297,8 +337,14 @@ export default function CatalogoPage() {
                   </tr>
                 ) : (
                   <tr key={producto.id}>
+                    <td className="px-4 py-2 border-b border-gray-100 whitespace-nowrap">
+                      {producto.codigo ?? "—"}
+                    </td>
                     <td className="px-4 py-2 border-b border-gray-100">
                       {producto.nombre_oficial}
+                    </td>
+                    <td className="px-4 py-2 border-b border-gray-100">
+                      {producto.grupo ?? "—"}
                     </td>
                     <td className="px-4 py-2 border-b border-gray-100">
                       {producto.unidad_default ?? "—"}

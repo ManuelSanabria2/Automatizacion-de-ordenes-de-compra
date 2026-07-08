@@ -8,9 +8,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   abrirDocumentoOrden,
-  API_URL,
   ERROR_CONEXION,
   extraerDetalle,
+  fetchApi,
   formatoCOP,
   OrdenResumen,
 } from "@/lib/api";
@@ -25,7 +25,7 @@ export default function OrdenesPage() {
     let cancelado = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/ordenes`);
+        const res = await fetchApi("/ordenes");
         if (cancelado) return;
         if (!res.ok) {
           setError(await extraerDetalle(res, "Error al cargar el historial"));

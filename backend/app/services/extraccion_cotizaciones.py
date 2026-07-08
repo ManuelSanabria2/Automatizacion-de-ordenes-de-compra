@@ -14,8 +14,7 @@ import json
 from google.genai import types
 from pydantic import BaseModel, ValidationError
 
-from app.core import config
-from app.core.gemini import obtener_cliente
+from app.core.gemini import generar_contenido
 
 
 class ErrorRespuestaNoJSON(ValueError):
@@ -89,10 +88,9 @@ ni después, y con exactamente las claves del schema indicado.
 
 
 def _llamar_gemini(pdf: bytes, prompt: str) -> str | None:
-    respuesta = obtener_cliente().models.generate_content(
-        model=config.GEMINI_MODEL,
+    respuesta = generar_contenido(
         contents=[types.Part.from_bytes(data=pdf, mime_type="application/pdf"), prompt],
-        config=types.GenerateContentConfig(
+        config_generacion=types.GenerateContentConfig(
             temperature=0,
             response_mime_type="application/json",
             response_schema=CotizacionExtraida,

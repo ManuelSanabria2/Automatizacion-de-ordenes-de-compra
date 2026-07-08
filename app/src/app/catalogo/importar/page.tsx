@@ -1,7 +1,9 @@
 "use client";
 
-// Carga masiva de proveedores: sube un Excel (.xlsx) al backend FastAPI y
-// muestra el resumen de la importación (nuevos, actualizados, errores, advertencias).
+// Carga masiva del catálogo oficial: sube el Excel "Requisición Abastecimientos"
+// (hoja Catalogo: Grupo | Codigo | Item | Unidad) al backend FastAPI y muestra
+// el resumen de la sincronización (nuevos, actualizados, sin cambios, errores).
+// La carga es incremental: nunca borra productos ausentes del archivo.
 
 import { useState } from "react";
 import Link from "next/link";
@@ -12,18 +14,19 @@ interface ErrorFila {
   motivo: string;
 }
 
-interface ResumenImportacion {
+interface ResumenImportacionCatalogo {
   total_filas: number;
   nuevos: number;
   actualizados: number;
+  sin_cambios: number;
   errores: ErrorFila[];
   advertencias: string[];
 }
 
-export default function ImportarProveedoresPage() {
+export default function ImportarCatalogoPage() {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [cargando, setCargando] = useState(false);
-  const [resumen, setResumen] = useState<ResumenImportacion | null>(null);
+  const [resumen, setResumen] = useState<ResumenImportacionCatalogo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function manejarEnvio(e: React.FormEvent<HTMLFormElement>) {
@@ -38,7 +41,7 @@ export default function ImportarProveedoresPage() {
     formData.append("archivo", archivo);
 
     try {
-      const res = await fetchApi("/importacion/importar-proveedores", {
+      const res = await fetchApi("/importacion/importar-catalogo", {
         method: "POST",
         body: formData,
       });
@@ -51,7 +54,7 @@ export default function ImportarProveedoresPage() {
         );
         return;
       }
-      setResumen(datos as ResumenImportacion);
+      setResumen(datos as ResumenImportacionCatalogo);
     } catch {
       setError("No se pudo conectar con el servidor. Verifica que el backend esté activo.");
     } finally {
@@ -62,13 +65,15 @@ export default function ImportarProveedoresPage() {
   return (
     <main className="p-8 max-w-3xl mx-auto flex flex-col gap-6">
       <div>
-        <Link href="/proveedores" className="text-sm text-blue-600 hover:underline">
-          ← Proveedores
+        <Link href="/catalogo" className="text-sm text-blue-600 hover:underline">
+          ← Catálogo
         </Link>
-        <h1 className="text-2xl font-semibold mt-2">Cargar proveedores</h1>
+        <h1 className="text-2xl font-semibold mt-2">Cargar catálogo oficial</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Sube un archivo Excel (.xlsx) con las columnas: NIT, Nombre, Dirección,
-          Ciudad, Contacto, Teléfono, Email. NIT y Nombre son obligatorios.
+          Sube el Excel «Requisición Abastecimientos» (columnas: Grupo, Codigo,
+          Item, Unidad). Los productos se identifican por nombre + código: los
+          nuevos se crean, los existentes actualizan grupo y unidad, y nunca se
+          borra ninguno.
         </p>
       </div>
 
@@ -96,7 +101,7 @@ export default function ImportarProveedoresPage() {
 
       {resumen && (
         <section className="flex flex-col gap-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded border border-green-200 bg-green-50 p-4 text-center">
               <p className="text-2xl font-semibold text-green-700">{resumen.nuevos}</p>
               <p className="text-sm text-green-800">Nuevos</p>
@@ -104,6 +109,10 @@ export default function ImportarProveedoresPage() {
             <div className="rounded border border-blue-200 bg-blue-50 p-4 text-center">
               <p className="text-2xl font-semibold text-blue-700">{resumen.actualizados}</p>
               <p className="text-sm text-blue-800">Actualizados</p>
+            </div>
+            <div className="rounded border border-gray-200 bg-gray-50 p-4 text-center">
+              <p className="text-2xl font-semibold text-gray-700">{resumen.sin_cambios}</p>
+              <p className="text-sm text-gray-800">Sin cambios</p>
             </div>
             <div className="rounded border border-red-200 bg-red-50 p-4 text-center">
               <p className="text-2xl font-semibold text-red-700">{resumen.errores.length}</p>

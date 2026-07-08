@@ -23,12 +23,15 @@ from pydantic import BaseModel, Field, ValidationError
 from rapidfuzz import fuzz, process, utils
 
 from app.core import config
-from app.core.gemini import obtener_cliente as obtener_cliente_gemini
+from app.core.gemini import generar_contenido
 from app.core.supabase import obtener_cliente as obtener_cliente_supabase
 
 # Los filtros .in_() viajan en la URL de PostgREST; se trocean para no exceder
 # su longitud máxima (mismo criterio que en importacion_proveedores).
 TAMANO_LOTE_SELECT = 200
+
+# PostgREST limita cada select a 1000 filas; el catálogo se lee por páginas.
+TAMANO_PAGINA_CATALOGO = 1000
 
 
 # --- Modelos de respuesta ----------------------------------------------------
@@ -37,6 +40,7 @@ TAMANO_LOTE_SELECT = 200
 class Candidato(BaseModel):
     producto_empresa_id: str
     nombre_oficial: str
+    codigo: str | None = None  # código del catálogo oficial (distingue homónimos)
     score: float  # 0-100
     justificacion: str | None = None  # solo en sugerencias de Gemini
 
@@ -80,14 +84,21 @@ def _sin_match(texto: str) -> ResolucionItem:
 
 
 def _cargar_catalogo() -> list[dict]:
-    respuesta = (
-        obtener_cliente_supabase()
-        .table("productos_empresa")
-        .select("id, nombre_oficial")
-        .order("nombre_oficial")
-        .execute()
-    )
-    return respuesta.data
+    """Catálogo completo, paginado: PostgREST corta cada select en 1000 filas
+    y el catálogo oficial supera las 3000."""
+    cliente = obtener_cliente_supabase()
+    filas: list[dict] = []
+    while True:
+        respuesta = (
+            cliente.table("productos_empresa")
+            .select("id, nombre_oficial, codigo")
+            .order("nombre_oficial")
+            .range(len(filas), len(filas) + TAMANO_PAGINA_CATALOGO - 1)
+            .execute()
+        )
+        filas.extend(respuesta.data)
+        if len(respuesta.data) < TAMANO_PAGINA_CATALOGO:
+            return filas
 
 
 def _alias_del_proveedor(nit: str, textos: list[str]) -> dict[str, str]:
@@ -133,10 +144,9 @@ def _prompt_sugerencias(textos: list[str], nombres_catalogo: list[str]) -> str:
 
 
 def _sugerencias_gemini(textos: list[str], nombres_catalogo: list[str]) -> list[SugerenciaGemini]:
-    respuesta = obtener_cliente_gemini().models.generate_content(
-        model=config.GEMINI_MODEL,
+    respuesta = generar_contenido(
         contents=_prompt_sugerencias(textos, nombres_catalogo),
-        config=types.GenerateContentConfig(
+        config_generacion=types.GenerateContentConfig(
             temperature=0,
             response_mime_type="application/json",
             response_schema=RespuestaSugerencias,
@@ -156,7 +166,7 @@ def resolver_productos(proveedor_nit: str, textos: list[str]) -> RespuestaResolu
 
     catalogo = _cargar_catalogo()
     nombres = [fila["nombre_oficial"] for fila in catalogo]
-    por_id = {fila["id"]: fila["nombre_oficial"] for fila in catalogo}
+    por_id = {fila["id"]: fila for fila in catalogo}
     alias = _alias_del_proveedor(proveedor_nit.strip(), [t for t in limpios if t])
 
     resoluciones: list[ResolucionItem] = []
@@ -178,7 +188,8 @@ def resolver_productos(proveedor_nit: str, textos: list[str]) -> RespuestaResolu
                     candidatos=[
                         Candidato(
                             producto_empresa_id=id_alias,
-                            nombre_oficial=por_id[id_alias],
+                            nombre_oficial=por_id[id_alias]["nombre_oficial"],
+                            codigo=por_id[id_alias].get("codigo"),
                             score=100,
                         )
                     ],
@@ -202,6 +213,7 @@ def resolver_productos(proveedor_nit: str, textos: list[str]) -> RespuestaResolu
             Candidato(
                 producto_empresa_id=catalogo[indice]["id"],
                 nombre_oficial=nombre,
+                codigo=catalogo[indice].get("codigo"),
                 score=round(score, 1),
             )
             for nombre, score, indice in coincidencias
@@ -270,6 +282,7 @@ def resolver_productos(proveedor_nit: str, textos: list[str]) -> RespuestaResolu
                     Candidato(
                         producto_empresa_id=fila["id"],
                         nombre_oficial=fila["nombre_oficial"],
+                        codigo=fila.get("codigo"),
                         score=sugerencia.confianza,
                         justificacion=sugerencia.justificacion.strip() or None,
                     )

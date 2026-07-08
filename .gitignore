@@ -30,6 +30,10 @@ next-env.d.ts
 *.tsbuildinfo
 npm-debug.log*
 
+# ── Datos reales de la empresa (solo locales, nunca al repo) ─
+Cotizaciones de prueba/
+Requisición Abastecimientos excel.xlsx
+
 # ── IDEs y sistema ───────────────────────────────────────
 .idea/
 .vscode/

@@ -7,11 +7,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  API_URL,
   CLAVE_REVISION,
   CotizacionExtraida,
   ERROR_CONEXION,
   extraerDetalle,
+  fetchApi,
   RespuestaResolucion,
   RevisionPendiente,
 } from "@/lib/api";
@@ -34,7 +34,7 @@ export default function CotizacionesPage() {
       setFase("extrayendo");
       const formData = new FormData();
       formData.append("archivo", archivo);
-      const resExtraccion = await fetch(`${API_URL}/extraccion/extraer-cotizacion`, {
+      const resExtraccion = await fetchApi("/extraccion/extraer-cotizacion", {
         method: "POST",
         body: formData,
       });
@@ -45,7 +45,7 @@ export default function CotizacionesPage() {
       const cotizacion = (await resExtraccion.json()) as CotizacionExtraida;
 
       setFase("resolviendo");
-      const resResolucion = await fetch(`${API_URL}/extraccion/resolver-productos`, {
+      const resResolucion = await fetchApi("/extraccion/resolver-productos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

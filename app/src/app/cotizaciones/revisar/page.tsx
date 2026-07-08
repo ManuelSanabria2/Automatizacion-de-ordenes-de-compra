@@ -9,11 +9,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  API_URL,
   Candidato,
   CLAVE_REVISION,
   ERROR_CONEXION,
   extraerDetalle,
+  fetchApi,
   formatoCOP,
   abrirDocumentoOrden,
   OrdenGenerada,
@@ -165,7 +165,7 @@ export default function RevisarCotizacionPage() {
     );
     setEstado("listo");
 
-    fetch(`${API_URL}/catalogo/productos`)
+    fetchApi("/catalogo/productos")
       .then(async (res) => {
         if (res.ok) setCatalogo((await res.json()) as Producto[]);
         else setErrorGlobal(await extraerDetalle(res, "Error al cargar el catálogo"));
@@ -180,7 +180,7 @@ export default function RevisarCotizacionPage() {
   async function verificarNit(nit: string) {
     setNitVerificado(nit);
     try {
-      const res = await fetch(`${API_URL}/proveedores/${encodeURIComponent(nit)}`);
+      const res = await fetchApi(`/proveedores/${encodeURIComponent(nit)}`);
       if (res.ok) {
         const datos = (await res.json()) as Proveedor;
         setProveedor({
@@ -235,7 +235,7 @@ export default function RevisarCotizacionPage() {
 
     actualizarItem(indice, { guardando: true, error: null });
     try {
-      const res = await fetch(`${API_URL}/catalogo/alias`, {
+      const res = await fetchApi("/catalogo/alias", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -269,7 +269,7 @@ export default function RevisarCotizacionPage() {
     setCreando(true);
     setErrorCrear(null);
     try {
-      const res = await fetch(`${API_URL}/catalogo/productos`, {
+      const res = await fetchApi("/catalogo/productos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -361,7 +361,7 @@ export default function RevisarCotizacionPage() {
       const pdf = obtenerPdfCotizacion();
       if (pdf) formData.append("pdf_cotizacion", pdf);
 
-      const res = await fetch(`${API_URL}/ordenes/generar`, {
+      const res = await fetchApi("/ordenes/generar", {
         method: "POST",
         body: formData,
       });
@@ -546,6 +546,7 @@ export default function RevisarCotizacionPage() {
                             {catalogo.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.nombre_oficial}
+                                {p.codigo ? ` — ${p.codigo}` : ""}
                               </option>
                             ))}
                             <option value={CREAR_NUEVO}>+ Crear producto nuevo…</option>
@@ -571,7 +572,8 @@ export default function RevisarCotizacionPage() {
                                 className="text-blue-600 hover:underline"
                               >
                                 {j > 0 ? " · " : ""}
-                                {c.nombre_oficial} ({Math.round(c.score)}%)
+                                {c.nombre_oficial}
+                                {c.codigo ? ` [${c.codigo}]` : ""} ({Math.round(c.score)}%)
                               </button>
                             ))}
                           </p>
