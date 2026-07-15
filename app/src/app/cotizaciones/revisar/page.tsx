@@ -36,6 +36,7 @@ interface ItemRevision {
   aliasOriginalId: string | null; // producto que ya estaba guardado como alias
   productoId: string; // "" = sin resolver
   descuento: string; // % por ítem, default "0"
+  incluir: boolean; // si entra en la orden (se puede excluir sin borrar)
   confirmado: boolean;
   guardando: boolean;
   error: string | null;
@@ -157,6 +158,7 @@ export default function RevisarCotizacionPage() {
           aliasOriginalId: res?.origen === "alias" ? (mejor?.producto_empresa_id ?? null) : null,
           productoId: mejor?.producto_empresa_id ?? "",
           descuento: "0",
+          incluir: true,
           confirmado: res?.origen === "alias",
           guardando: false,
           error: null,
@@ -202,6 +204,13 @@ export default function RevisarCotizacionPage() {
 
   function actualizarItem(indice: number, cambios: Partial<ItemRevision>) {
     setItems((previos) => previos.map((it, i) => (i === indice ? { ...it, ...cambios } : it)));
+  }
+
+  function eliminarItem(indice: number) {
+    // Eliminar reindexa la lista: se cierra el formulario de "crear producto"
+    // para que no quede apuntando a otro ítem.
+    setCrearPara(null);
+    setItems((previos) => previos.filter((_, i) => i !== indice));
   }
 
   function cambiarProducto(indice: number, valor: string) {
@@ -299,6 +308,7 @@ export default function RevisarCotizacionPage() {
 
   const totales = useMemo(() => {
     const subtotal = items.reduce((suma, item) => {
+      if (!item.incluir) return suma;
       const descuento = Math.min(Math.max(numeroDe(item.descuento), 0), 100);
       return suma + item.cantidad * item.valorUnitario * (1 - descuento / 100);
     }, 0);
@@ -323,10 +333,11 @@ export default function RevisarCotizacionPage() {
     if (campos.tasaIva.trim() === "" || !Number.isFinite(tasa) || tasa < 0 || tasa > 100) {
       faltas.push("Tasa de IVA válida (0-100)");
     }
-    if (items.length === 0) faltas.push("La cotización no tiene ítems");
-    const sinProducto = items.filter((it) => !it.productoId).length;
+    const incluidos = items.filter((it) => it.incluir);
+    if (incluidos.length === 0) faltas.push("Selecciona al menos un ítem para la orden");
+    const sinProducto = incluidos.filter((it) => !it.productoId).length;
     if (sinProducto > 0) faltas.push(`${sinProducto} ítem(s) sin producto asignado`);
-    const sinConfirmar = items.filter((it) => it.productoId && !it.confirmado).length;
+    const sinConfirmar = incluidos.filter((it) => it.productoId && !it.confirmado).length;
     if (sinConfirmar > 0) faltas.push(`${sinConfirmar} ítem(s) sin confirmar`);
     return faltas;
   }, [proveedor, campos, items]);
@@ -342,15 +353,19 @@ export default function RevisarCotizacionPage() {
       sitio_entrega: campos.sitioEntrega.trim(),
       tasa_iva: numeroDe(campos.tasaIva),
       descuento_general_porcentaje: numeroDe(campos.descuentoGeneral),
-      items: items.map((item, i) => ({
-        item_num: i + 1,
-        producto_empresa_id: item.productoId,
-        descripcion_proveedor: item.descripcion,
-        unidad: item.unidad,
-        cantidad: item.cantidad,
-        valor_unitario: item.valorUnitario,
-        descuento_porcentaje: numeroDe(item.descuento),
-      })),
+      // Solo los ítems incluidos entran a la orden; se renumeran de forma
+      // consecutiva para que item_num no tenga huecos.
+      items: items
+        .filter((item) => item.incluir)
+        .map((item, i) => ({
+          item_num: i + 1,
+          producto_empresa_id: item.productoId,
+          descripcion_proveedor: item.descripcion,
+          unidad: item.unidad,
+          cantidad: item.cantidad,
+          valor_unitario: item.valorUnitario,
+          descuento_porcentaje: numeroDe(item.descuento),
+        })),
     };
 
     setGenerando(true);
@@ -386,6 +401,8 @@ export default function RevisarCotizacionPage() {
     const error = await abrirDocumentoOrden(ordenGenerada.id);
     if (error) setErrorGenerar(error);
   }
+
+  const itemsIncluidos = items.filter((it) => it.incluir).length;
 
   // --- Render -------------------------------------------------------------------
 
@@ -509,16 +526,24 @@ export default function RevisarCotizacionPage() {
 
       {/* Ítems */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Ítems ({items.length})</h2>
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-sm font-semibold">Ítems</h2>
+          <span className="text-xs text-gray-500">
+            {itemsIncluidos === items.length
+              ? `${items.length}`
+              : `${itemsIncluidos} de ${items.length} seleccionados`}
+          </span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border border-gray-200">
             <thead>
               <tr className="bg-gray-50 text-left">
+                <th className={`${claseCelda} border-b-gray-200 w-12 text-center`}>Incl.</th>
                 <th className={`${claseCelda} border-b-gray-200`}>Descripción del proveedor</th>
                 <th className={`${claseCelda} border-b-gray-200 min-w-64`}>Producto oficial</th>
                 <th className={`${claseCelda} border-b-gray-200 w-24`}>Desc. %</th>
                 <th className={`${claseCelda} border-b-gray-200 w-32 text-right`}>Total ítem</th>
-                <th className={`${claseCelda} border-b-gray-200 w-36`}></th>
+                <th className={`${claseCelda} border-b-gray-200 w-40`}></th>
               </tr>
             </thead>
             <tbody>
@@ -527,7 +552,25 @@ export default function RevisarCotizacionPage() {
                 const descuento = Math.min(Math.max(numeroDe(item.descuento), 0), 100);
                 const totalItem = item.cantidad * item.valorUnitario * (1 - descuento / 100);
                 return (
-                  <tr key={i} className={item.confirmado ? "bg-green-50/50" : ""}>
+                  <tr
+                    key={i}
+                    className={
+                      !item.incluir
+                        ? "bg-gray-50 text-gray-400"
+                        : item.confirmado
+                          ? "bg-green-50/50"
+                          : ""
+                    }
+                  >
+                    <td className={`${claseCelda} text-center`}>
+                      <input
+                        type="checkbox"
+                        checked={item.incluir}
+                        onChange={(e) => actualizarItem(i, { incluir: e.target.checked })}
+                        title="Incluir este ítem en la orden"
+                        className="h-4 w-4 cursor-pointer"
+                      />
+                    </td>
                     <td className={claseCelda}>
                       <p>{item.descripcion}</p>
                       <p className="text-xs text-gray-500 mt-1">
@@ -596,18 +639,29 @@ export default function RevisarCotizacionPage() {
                       {formatoCOP(totalItem)}
                     </td>
                     <td className={claseCelda}>
-                      {item.confirmado ? (
-                        <span className="text-sm font-medium text-green-700">✓ Confirmado</span>
-                      ) : (
+                      <div className="flex flex-col items-start gap-1">
+                        {item.confirmado ? (
+                          <span className="text-sm font-medium text-green-700">
+                            ✓ Confirmado
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => confirmarItem(i)}
+                            disabled={!item.productoId || item.guardando}
+                            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {item.guardando ? "Guardando…" : "Confirmar"}
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => confirmarItem(i)}
-                          disabled={!item.productoId || item.guardando}
-                          className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => eliminarItem(i)}
+                          className="text-xs text-red-600 hover:underline"
                         >
-                          {item.guardando ? "Guardando…" : "Confirmar"}
+                          Eliminar
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );

@@ -7,12 +7,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  abrirDocumentoOrden,
+  descargarDocumentoOrden,
   ERROR_CONEXION,
   extraerDetalle,
   fetchApi,
   formatoCOP,
   OrdenResumen,
+  VarianteDocumento,
 } from "@/lib/api";
 
 export default function OrdenesPage() {
@@ -46,10 +47,14 @@ export default function OrdenesPage() {
     };
   }, []);
 
-  async function descargar(ordenId: string) {
-    setDescargando(ordenId);
+  // Clave de estado por (orden, variante) para que solo el botón pulsado
+  // muestre "Generando…".
+  async function descargar(orden: OrdenResumen, variante: VarianteDocumento) {
+    const clave = `${orden.id}:${variante}`;
+    setDescargando(clave);
     setError(null);
-    const mensaje = await abrirDocumentoOrden(ordenId);
+    const nombre = `${orden.numero_orden} - ${variante}.xlsx`;
+    const mensaje = await descargarDocumentoOrden(orden.id, variante, nombre);
     if (mensaje) setError(mensaje);
     setDescargando(null);
   }
@@ -65,7 +70,10 @@ export default function OrdenesPage() {
           <Link href="/cotizaciones" className="text-blue-600 hover:underline">
             Cotizaciones
           </Link>
-          .
+          . Cada orden se puede descargar en dos variantes de Excel:{" "}
+          <span className="font-medium">empresa</span> (nombres del catálogo, para
+          la compra interna) y <span className="font-medium">proveedor</span>{" "}
+          (nombres tal como vienen en la cotización).
         </p>
       </div>
 
@@ -107,14 +115,30 @@ export default function OrdenesPage() {
                     {orden.total !== null ? formatoCOP(orden.total) : "—"}
                   </td>
                   <td className={`${claseCelda} text-right`}>
-                    <button
-                      type="button"
-                      onClick={() => descargar(orden.id)}
-                      disabled={descargando === orden.id}
-                      className="rounded border border-gray-300 px-3 py-1 text-xs font-medium hover:bg-gray-100 disabled:opacity-50"
-                    >
-                      {descargando === orden.id ? "Abriendo…" : "Descargar"}
-                    </button>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => descargar(orden, "empresa")}
+                        disabled={descargando === `${orden.id}:empresa`}
+                        title="Excel con los nombres del catálogo de la empresa"
+                        className="rounded border border-gray-300 px-3 py-1 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {descargando === `${orden.id}:empresa`
+                          ? "Generando…"
+                          : "Excel empresa"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => descargar(orden, "proveedor")}
+                        disabled={descargando === `${orden.id}:proveedor`}
+                        title="Excel con los nombres originales de la cotización del proveedor"
+                        className="rounded border border-gray-300 px-3 py-1 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {descargando === `${orden.id}:proveedor`
+                          ? "Generando…"
+                          : "Excel proveedor"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

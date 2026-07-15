@@ -35,6 +35,11 @@ FILAS_ITEMS_PLANTILLA = 5  # la plantilla trae 5 filas de ítems (15-19)
 COLUMNAS_TABLA = "BCDEFG"
 FORMATO_PORCENTAJE = "0%"
 
+# Variantes del documento según qué nombre de ítem se imprime en la tabla.
+VARIANTE_EMPRESA = "empresa"      # descripcion_final (nombre oficial del catálogo)
+VARIANTE_PROVEEDOR = "proveedor"  # descripcion_proveedor (nombre de la cotización)
+VARIANTES = (VARIANTE_EMPRESA, VARIANTE_PROVEEDOR)
+
 MESES = [
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -54,6 +59,10 @@ class ErrorProductoInexistente(ValueError):
 
 class ErrorOrdenNoEncontrada(ValueError):
     """No existe una orden con ese id (404)."""
+
+
+class ErrorVarianteInvalida(ValueError):
+    """Se pidió una variante de documento desconocida (422)."""
 
 
 # --- Modelos de entrada (espejo del orden_borrador del frontend) ---------------
@@ -142,6 +151,7 @@ class UrlDocumento(BaseModel):
 class _ItemCalculado(BaseModel):
     item: ItemBorrador
     descripcion_final: str
+    descripcion_proveedor: str
     unidad: str
     valor_total: float
 
@@ -249,14 +259,28 @@ def _copiar_estilo_fila(ws, fila_origen: int, fila_destino: int) -> None:
         ws.row_dimensions[fila_destino].height = alto
 
 
+def _descripcion_variante(it: _ItemCalculado, variante: str) -> str:
+    """Nombre a imprimir en la tabla según la variante. La variante proveedor
+    cae al nombre oficial cuando no se guardó el original (órdenes antiguas)."""
+    if variante == VARIANTE_PROVEEDOR and it.descripcion_proveedor:
+        return it.descripcion_proveedor
+    return it.descripcion_final
+
+
 def generar_documento(
     borrador: OrdenBorrador,
     items: list[_ItemCalculado],
     totales: TotalesOrden,
     numero_orden: str,
     fecha: date,
+    variante: str = VARIANTE_EMPRESA,
 ) -> bytes:
-    """Llena la plantilla oficial con los datos de la orden y devuelve el .xlsx."""
+    """Llena la plantilla oficial con los datos de la orden y devuelve el .xlsx.
+
+    `variante` decide qué nombre de ítem se imprime: EMPRESA usa el nombre
+    oficial del catálogo; PROVEEDOR usa el nombre original de la cotización.
+    Todo lo demás (cifras, campos, secciones fijas) es idéntico entre variantes.
+    """
     wb = openpyxl.load_workbook(config.PLANTILLA_ORDEN)
     ws = wb.active
     ws.title = _titulo_hoja(borrador.proveedor.nombre, numero_orden)
@@ -278,7 +302,7 @@ def generar_documento(
     for i, it in enumerate(items):
         f = FILA_PRIMER_ITEM + i
         ws[f"B{f}"] = float(it.item.item_num)
-        ws[f"C{f}"] = it.descripcion_final
+        ws[f"C{f}"] = _descripcion_variante(it, variante)
         ws[f"D{f}"] = it.unidad
         ws[f"E{f}"] = it.item.cantidad
         ws[f"F{f}"] = it.item.valor_unitario
@@ -380,6 +404,9 @@ def _preparar_items(cliente, borrador: OrdenBorrador) -> list[_ItemCalculado]:
                 item=it,
                 # Nombre oficial CONGELADO al momento de la generación (§ integridad)
                 descripcion_final=producto["nombre_oficial"],
+                # Nombre original del proveedor, también congelado, para la
+                # variante "proveedor" del documento.
+                descripcion_proveedor=it.descripcion_proveedor.strip(),
                 unidad=it.unidad.strip() or (producto["unidad_default"] or ""),
                 valor_total=_valor_total_item(it),
             )
@@ -457,6 +484,7 @@ def generar_orden(borrador: OrdenBorrador, pdf_cotizacion: bytes | None = None) 
                     "item_num": it.item.item_num,
                     "producto_empresa_id": it.item.producto_empresa_id,
                     "descripcion_final": it.descripcion_final,
+                    "descripcion_proveedor": it.descripcion_proveedor or None,
                     "unidad": it.unidad or None,
                     "cantidad": it.item.cantidad,
                     "valor_unitario": it.item.valor_unitario,
@@ -500,6 +528,100 @@ def listar_ordenes() -> list[OrdenResumen]:
         )
         for fila in respuesta.data
     ]
+
+
+def regenerar_documento_orden(
+    orden_id: str, variante: str = VARIANTE_EMPRESA
+) -> tuple[bytes, str]:
+    """Reconstruye el documento .xlsx de una orden ya emitida en la variante
+    pedida (empresa/proveedor) a partir de los valores CONGELADOS en la base de
+    datos. Devuelve (contenido, nombre_de_archivo). No toca el catálogo: usa las
+    descripciones y cifras guardadas al generar la orden."""
+    if variante not in VARIANTES:
+        raise ErrorVarianteInvalida(f"Variante no válida: {variante!r}")
+
+    cliente = obtener_cliente()
+    respuesta = (
+        cliente.table("ordenes_compra")
+        .select("*, proveedores(nombre, direccion, ciudad)")
+        .eq("id", orden_id)
+        .limit(1)
+        .execute()
+    )
+    if not respuesta.data:
+        raise ErrorOrdenNoEncontrada(f"No existe la orden {orden_id}")
+    fila = respuesta.data[0]
+
+    filas_items = (
+        cliente.table("ordenes_compra_items")
+        .select("*")
+        .eq("orden_id", orden_id)
+        .order("item_num")
+        .execute()
+    ).data
+    if not filas_items:
+        raise ErrorOrdenNoEncontrada(f"La orden {orden_id} no tiene ítems")
+
+    prov = fila.get("proveedores") or {}
+    proveedor = ProveedorBorrador(
+        nombre=prov.get("nombre") or fila["proveedor_nit"],
+        nit=fila["proveedor_nit"],
+        direccion=prov.get("direccion") or "",
+        ciudad=prov.get("ciudad") or "",
+    )
+    items_borrador = [
+        ItemBorrador(
+            item_num=fi["item_num"],
+            producto_empresa_id=fi.get("producto_empresa_id") or "",
+            descripcion_proveedor=fi.get("descripcion_proveedor") or "",
+            unidad=fi.get("unidad") or "",
+            cantidad=float(fi["cantidad"]),
+            valor_unitario=float(fi["valor_unitario"]),
+            descuento_porcentaje=float(fi.get("descuento_porcentaje") or 0),
+        )
+        for fi in filas_items
+    ]
+    borrador = OrdenBorrador(
+        proveedor=proveedor,
+        numero_cotizacion=fila.get("numero_cotizacion") or "",
+        proyecto=fila["proyecto"],
+        plazo_entrega=fila["plazo_entrega"],
+        forma_pago=fila["forma_pago"],
+        sitio_entrega=fila["sitio_entrega"],
+        tasa_iva=float(fila["tasa_iva"]),
+        descuento_general_porcentaje=float(fila.get("descuento_general_porcentaje") or 0),
+        items=items_borrador,
+    )
+    calculados = [
+        _ItemCalculado(
+            item=ib,
+            descripcion_final=fi["descripcion_final"],
+            descripcion_proveedor=fi.get("descripcion_proveedor") or "",
+            unidad=fi.get("unidad") or "",
+            valor_total=float(fi["valor_total"]),
+        )
+        for ib, fi in zip(items_borrador, filas_items)
+    ]
+    subtotal = float(fila["subtotal"])
+    valor_descuento = float(fila["valor_descuento"])
+    totales = TotalesOrden(
+        subtotal=subtotal,
+        valor_descuento=valor_descuento,
+        base_iva=round(subtotal - valor_descuento, 2),
+        iva=float(fila["iva"]),
+        total=float(fila["total"]),
+    )
+
+    contenido = generar_documento(
+        borrador,
+        calculados,
+        totales,
+        fila["numero_orden"],
+        date.fromisoformat(fila["fecha"]),
+        variante,
+    )
+    nombre = f"{fila['numero_orden']} - {variante}.xlsx"
+    return contenido, nombre
 
 
 def url_documento(orden_id: str) -> UrlDocumento:

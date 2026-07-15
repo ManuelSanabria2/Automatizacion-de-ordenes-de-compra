@@ -123,6 +123,35 @@ export async function abrirDocumentoOrden(ordenId: string): Promise<string | nul
   }
 }
 
+export type VarianteDocumento = "empresa" | "proveedor";
+
+/** Regenera y descarga el Excel de una orden en la variante indicada:
+ *  "empresa" imprime los nombres del catálogo; "proveedor" los nombres
+ *  originales de la cotización. El backend transmite el archivo (con la clave
+ *  API), así que se descarga como blob. Devuelve un mensaje de error, o null. */
+export async function descargarDocumentoOrden(
+  ordenId: string,
+  variante: VarianteDocumento,
+  nombreArchivo: string,
+): Promise<string | null> {
+  try {
+    const res = await fetchApi(`/ordenes/${ordenId}/descargar?variante=${variante}`);
+    if (!res.ok) return await extraerDetalle(res, "No se pudo descargar el documento");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    URL.revokeObjectURL(url);
+    return null;
+  } catch {
+    return ERROR_CONEXION;
+  }
+}
+
 // --- Traspaso subida → revisión (sessionStorage) -----------------------------
 
 export const CLAVE_REVISION = "cotizacion_revision";
