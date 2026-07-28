@@ -12,6 +12,7 @@ import {
   ERROR_CONEXION,
   extraerDetalle,
   fetchApi,
+  ItemResolver,
   RespuestaResolucion,
   RevisionPendiente,
 } from "@/lib/api";
@@ -50,7 +51,14 @@ export default function CotizacionesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           proveedor_nit: cotizacion.proveedor.nit,
-          items: cotizacion.items.map((item) => item.descripcion),
+          // La unidad y la referencia del proveedor son señales extra del matching.
+          items: cotizacion.items.map(
+            (item): ItemResolver => ({
+              texto: item.descripcion,
+              unidad: item.unidad ?? "",
+              referencia: item.referencia ?? "",
+            }),
+          ),
         }),
       });
       if (!resResolucion.ok) {

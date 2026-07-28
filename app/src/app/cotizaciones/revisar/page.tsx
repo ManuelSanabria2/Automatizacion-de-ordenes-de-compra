@@ -16,6 +16,7 @@ import {
   fetchApi,
   formatoCOP,
   abrirDocumentoOrden,
+  NivelResolucion,
   OrdenGenerada,
   OrigenResolucion,
   Producto,
@@ -26,10 +27,12 @@ import { limpiarPdfCotizacion, obtenerPdfCotizacion } from "@/lib/pdf-cotizacion
 
 interface ItemRevision {
   descripcion: string;
+  referencia: string; // código del proveedor; se guarda con el alias al confirmar
   unidad: string;
   cantidad: number;
   valorUnitario: number;
   origen: OrigenResolucion;
+  nivel: NivelResolucion;
   confianza: number;
   justificacion: string | null;
   candidatos: Candidato[];
@@ -60,11 +63,21 @@ interface CamposOrden {
 
 const CREAR_NUEVO = "__nuevo__";
 
-const ETIQUETA_ORIGEN: Record<OrigenResolucion, { texto: string; clase: string }> = {
-  alias: { texto: "Alias", clase: "bg-green-100 text-green-800" },
-  fuzzy: { texto: "Fuzzy", clase: "bg-blue-100 text-blue-800" },
-  gemini: { texto: "Gemini", clase: "bg-purple-100 text-purple-800" },
-  sin_match: { texto: "Sin match", clase: "bg-red-100 text-red-800" },
+const ETIQUETA_ORIGEN: Record<OrigenResolucion, string> = {
+  alias: "Alias",
+  historico: "Histórico",
+  fuzzy: "Fuzzy",
+  gemini: "Gemini",
+  sin_match: "Sin match",
+};
+
+// El color va por NIVEL de confianza, no por origen: lo que el usuario necesita
+// saber de un vistazo es a cuáles debe prestarles atención. Verde no significa
+// confirmado — confirmar sigue siendo siempre un clic suyo.
+const CLASE_NIVEL: Record<NivelResolucion, string> = {
+  alta: "bg-green-100 text-green-800",
+  media: "bg-amber-100 text-amber-900",
+  baja: "bg-red-100 text-red-800",
 };
 
 function numeroDe(texto: string): number {
@@ -148,10 +161,12 @@ export default function RevisarCotizacionPage() {
         const mejor = res?.candidatos[0];
         return {
           descripcion: item.descripcion,
+          referencia: item.referencia ?? "",
           unidad: item.unidad,
           cantidad: item.cantidad,
           valorUnitario: item.valor_unitario,
           origen: res?.origen ?? "sin_match",
+          nivel: res?.nivel ?? "baja",
           confianza: res?.confianza ?? 0,
           justificacion: mejor?.justificacion ?? null,
           candidatos: res?.candidatos ?? [],
@@ -251,6 +266,9 @@ export default function RevisarCotizacionPage() {
           proveedor_nit: nit,
           nombre_proveedor_texto: item.descripcion.trim(),
           producto_empresa_id: item.productoId,
+          // La referencia del proveedor es una clave más estable que el texto:
+          // el proveedor reescribe la descripción, pero no su propio código.
+          referencia_proveedor: item.referencia.trim(),
         }),
       });
       if (!res.ok) {
@@ -265,6 +283,7 @@ export default function RevisarCotizacionPage() {
         confirmado: true,
         aliasOriginalId: item.productoId,
         origen: "alias",
+        nivel: "alta",
         confianza: 100,
       });
     } catch {
@@ -596,9 +615,9 @@ export default function RevisarCotizacionPage() {
                           </select>
                           <span
                             title={item.justificacion ?? undefined}
-                            className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${etiqueta.clase}`}
+                            className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${CLASE_NIVEL[item.nivel]}`}
                           >
-                            {etiqueta.texto}
+                            {etiqueta}
                             {item.origen !== "alias" && item.origen !== "sin_match"
                               ? ` ${Math.round(item.confianza)}%`
                               : ""}

@@ -26,12 +26,13 @@ import pandas as pd
 from pydantic import BaseModel
 
 from app.core.supabase import obtener_cliente
+from app.core.texto import normalizar_encabezado
+from app.services import catalogo_cache
 from app.services.importacion_proveedores import (
     ErrorArchivoInvalido,
     ErrorColumnasFaltantes,
     ErrorFila,
     normalizar_celda,
-    normalizar_encabezado,
 )
 
 TABLA = "productos_empresa"
@@ -182,6 +183,9 @@ def importar_catalogo(contenido: bytes) -> ResumenImportacionCatalogo:
         cliente.table(TABLA).upsert(
             cambiados[i : i + TAMANO_LOTE_ESCRITURA], on_conflict="id"
         ).execute()
+
+    if nuevos or cambiados:
+        catalogo_cache.invalidar()
 
     return ResumenImportacionCatalogo(
         total_filas=total_filas,

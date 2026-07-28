@@ -25,32 +25,57 @@ export interface ProveedorExtraido {
 
 export interface ItemExtraido {
   descripcion: string;
+  referencia: string; // código/SKU del proveedor, si su cotización lo trae
   unidad: string;
   cantidad: number;
   valor_unitario: number;
+}
+
+/** Totales tal como están impresos en el PDF: cifra de control contra filas omitidas. */
+export interface TotalesExtraidos {
+  subtotal: number;
+  iva: number;
+  total: number;
 }
 
 export interface CotizacionExtraida {
   proveedor: ProveedorExtraido;
   numero_cotizacion: string;
   items: ItemExtraido[];
+  totales_pdf: TotalesExtraidos;
 }
 
 // --- Resolución de nombres (resolucion_productos.py) ------------------------
 
-export type OrigenResolucion = "alias" | "fuzzy" | "gemini" | "sin_match";
+export type OrigenResolucion =
+  | "alias"
+  | "historico" // confirmado antes por otro proveedor o en una orden anterior
+  | "fuzzy"
+  | "gemini"
+  | "sin_match";
+
+/** Banda de confianza para el semáforo de la revisión. No auto-confirma nada. */
+export type NivelResolucion = "alta" | "media" | "baja";
 
 export interface Candidato {
   producto_empresa_id: string;
   nombre_oficial: string;
   codigo: string | null;
+  grupo: string | null;
   score: number;
   justificacion: string | null;
+}
+
+export interface ItemResolver {
+  texto: string;
+  unidad: string;
+  referencia: string;
 }
 
 export interface ResolucionItem {
   texto_proveedor: string;
   origen: OrigenResolucion;
+  nivel: NivelResolucion;
   confianza: number;
   candidatos: Candidato[];
 }
