@@ -8,21 +8,28 @@ Endpoints:
 - GET  /ordenes/{id}/documento   : URL firmada (1 h) del documento generado.
 """
 
+from io import BytesIO
+from urllib.parse import quote
+
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from postgrest.exceptions import APIError
 from pydantic import ValidationError
 from storage3.exceptions import StorageApiError
 
 from app.services.generacion_ordenes import (
+    MIME_XLSX,
     ErrorOrdenNoEncontrada,
     ErrorProductoInexistente,
+    ErrorVarianteInvalida,
     OrdenBorrador,
     OrdenGenerada,
     OrdenResumen,
     UrlDocumento,
     generar_orden,
     listar_ordenes,
+    regenerar_documento_orden,
     url_documento,
 )
 
@@ -36,6 +43,8 @@ def _a_http(exc: Exception) -> HTTPException:
     """Traduce los errores del servicio a respuestas HTTP."""
     if isinstance(exc, ErrorProductoInexistente):
         return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ErrorVarianteInvalida):
+        return HTTPException(status_code=422, detail=str(exc))
     if isinstance(exc, ErrorOrdenNoEncontrada):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, APIError):
@@ -100,3 +109,33 @@ async def url_documento_endpoint(orden_id: str) -> UrlDocumento:
         return await run_in_threadpool(url_documento, orden_id)
     except (ErrorOrdenNoEncontrada, APIError, StorageApiError, RuntimeError) as exc:
         raise _a_http(exc) from exc
+
+
+@router.get("/{orden_id}/descargar")
+async def descargar_documento_endpoint(
+    orden_id: str, variante: str = "empresa"
+) -> StreamingResponse:
+    """Regenera y descarga el documento .xlsx de una orden en la variante pedida:
+    `empresa` (nombres del catálogo) o `proveedor` (nombres de la cotización).
+    Se reconstruye al vuelo desde los datos congelados; no se guarda en Storage.
+    """
+    try:
+        contenido, nombre = await run_in_threadpool(
+            regenerar_documento_orden, orden_id, variante
+        )
+    except (
+        ErrorVarianteInvalida,
+        ErrorOrdenNoEncontrada,
+        APIError,
+        StorageApiError,
+        RuntimeError,
+    ) as exc:
+        raise _a_http(exc) from exc
+
+    return StreamingResponse(
+        BytesIO(contenido),
+        media_type=MIME_XLSX,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(nombre)}"
+        },
+    )

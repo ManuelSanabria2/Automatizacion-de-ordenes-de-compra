@@ -33,6 +33,12 @@ npm-debug.log*
 # ── Datos reales de la empresa (solo locales, nunca al repo) ─
 Cotizaciones de prueba/
 Requisición Abastecimientos excel.xlsx
+# Set de evaluación del matching: sale de alias_productos reales (NIT del
+# proveedor, nombres del catálogo, UUIDs). Se regenera — ver evaluar_resolucion.py
+backend/tests/datos/
+
+# ── Herramientas de análisis (grafo de conocimiento local) ─
+graphify-out/
 
 # ── IDEs y sistema ───────────────────────────────────────
 .idea/

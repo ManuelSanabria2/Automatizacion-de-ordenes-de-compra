@@ -17,6 +17,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.supabase import obtener_cliente
+from app.services import catalogo_cache
 
 TABLA = "productos_empresa"
 COLUMNAS = "id, nombre_oficial, codigo, grupo, unidad_default, tasa_iva_default, created_at"
@@ -118,6 +119,7 @@ def crear_producto(datos: ProductoCrear) -> Producto:
     respuesta = (
         obtener_cliente().table(TABLA).insert(datos.model_dump()).execute()
     )
+    catalogo_cache.invalidar()
     return Producto(**respuesta.data[0])
 
 
@@ -136,4 +138,5 @@ def actualizar_producto(producto_id: str, datos: ProductoActualizar) -> Producto
     )
     if not respuesta.data:
         raise ErrorProductoNoEncontrado(f"No existe un producto con id {producto_id}")
+    catalogo_cache.invalidar()
     return Producto(**respuesta.data[0])

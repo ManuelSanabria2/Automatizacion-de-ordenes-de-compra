@@ -9,7 +9,6 @@ Reglas:
   ocurrencia.
 """
 
-import unicodedata
 from datetime import datetime, timezone
 from io import BytesIO
 from zipfile import BadZipFile
@@ -18,6 +17,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from app.core.supabase import obtener_cliente
+from app.core.texto import normalizar_encabezado
 
 COLUMNAS_REQUERIDAS = ("nit", "nombre")
 COLUMNAS_OPCIONALES = ("direccion", "ciudad", "contacto", "telefono", "email")
@@ -47,14 +47,6 @@ class ResumenImportacion(BaseModel):
     actualizados: int
     errores: list[ErrorFila]
     advertencias: list[str]
-
-
-def normalizar_encabezado(texto: str) -> str:
-    """"Dirección", "DIRECCION" y " direccion " se vuelven "direccion"."""
-    sin_acentos = "".join(
-        c for c in unicodedata.normalize("NFD", str(texto)) if not unicodedata.combining(c)
-    )
-    return sin_acentos.strip().lower()
 
 
 def normalizar_celda(valor) -> str | None:

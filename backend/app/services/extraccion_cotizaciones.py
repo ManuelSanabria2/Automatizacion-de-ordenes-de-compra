@@ -34,15 +34,30 @@ class ProveedorExtraido(BaseModel):
 
 class ItemExtraido(BaseModel):
     descripcion: str = ""
+    referencia: str = ""  # código/SKU del proveedor, si su cotización lo trae
     unidad: str = ""
     cantidad: float = 0
     valor_unitario: float = 0
+
+
+class TotalesExtraidos(BaseModel):
+    """Totales tal como están IMPRESOS en el PDF (no recalculados).
+
+    Sirven de cifra de control: si la suma de los ítems extraídos no cuadra con
+    el total del proveedor, es que Gemini se saltó filas. La prueba E2E detectó
+    justo eso (3 conduletas repetidas omitidas en silencio) comparando a mano.
+    """
+
+    subtotal: float = 0
+    iva: float = 0
+    total: float = 0
 
 
 class CotizacionExtraida(BaseModel):
     proveedor: ProveedorExtraido = ProveedorExtraido()
     numero_cotizacion: str = ""
     items: list[ItemExtraido] = []
+    totales_pdf: TotalesExtraidos = TotalesExtraidos()
 
 
 # --- Prompts ----------------------------------------------------------------
@@ -56,14 +71,19 @@ estructura exacta:
   "proveedor": {"nombre": "", "nit": "", "direccion": "", "ciudad": ""},
   "numero_cotizacion": "",
   "items": [
-    {"descripcion": "", "unidad": "", "cantidad": 0, "valor_unitario": 0}
-  ]
+    {"descripcion": "", "referencia": "", "unidad": "", "cantidad": 0, "valor_unitario": 0}
+  ],
+  "totales_pdf": {"subtotal": 0, "iva": 0, "total": 0}
 }
 
 Reglas:
 - "items": una entrada por línea de producto/servicio cotizado. NO incluyas
   filas de subtotal, descuento, IVA, total, ni notas o condiciones.
 - "descripcion": el texto del producto tal como lo escribe el proveedor.
+- "referencia": el código, referencia o SKU con que el PROVEEDOR identifica ese
+  producto en su propia cotización (columna "Código", "Ref.", "Item", o el
+  número que antecede a la descripción). Es el código del proveedor, NO el de
+  la empresa compradora. Si no aparece, "".
 - "unidad": la unidad de medida tal como aparece (UND, ML, M2, KG, GLB, etc.);
   si no aparece, "".
 - "cantidad" y "valor_unitario": números JSON sin separadores de miles ni
@@ -71,6 +91,10 @@ Reglas:
   precio unitario ANTES de IVA si la cotización lo discrimina.
 - "nit": solo dígitos y el dígito de verificación si aparece (ej. "900123456-7").
 - "numero_cotizacion": el número o código de la cotización tal como aparece.
+- "totales_pdf": los totales IMPRESOS al pie de la cotización, copiados tal
+  cual, sin recalcularlos ni corregirlos. Si el PDF no discrimina el IVA o no
+  muestra subtotal, deja ese campo en 0. Sirven para verificar que no se
+  omitió ninguna fila, así que deben reflejar el papel, no tu suma.
 - Cualquier dato que no esté en el PDF va como "" (textos) o 0 (números).
 """
 

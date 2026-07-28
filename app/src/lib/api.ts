@@ -25,32 +25,57 @@ export interface ProveedorExtraido {
 
 export interface ItemExtraido {
   descripcion: string;
+  referencia: string; // código/SKU del proveedor, si su cotización lo trae
   unidad: string;
   cantidad: number;
   valor_unitario: number;
+}
+
+/** Totales tal como están impresos en el PDF: cifra de control contra filas omitidas. */
+export interface TotalesExtraidos {
+  subtotal: number;
+  iva: number;
+  total: number;
 }
 
 export interface CotizacionExtraida {
   proveedor: ProveedorExtraido;
   numero_cotizacion: string;
   items: ItemExtraido[];
+  totales_pdf: TotalesExtraidos;
 }
 
 // --- Resolución de nombres (resolucion_productos.py) ------------------------
 
-export type OrigenResolucion = "alias" | "fuzzy" | "gemini" | "sin_match";
+export type OrigenResolucion =
+  | "alias"
+  | "historico" // confirmado antes por otro proveedor o en una orden anterior
+  | "fuzzy"
+  | "gemini"
+  | "sin_match";
+
+/** Banda de confianza para el semáforo de la revisión. No auto-confirma nada. */
+export type NivelResolucion = "alta" | "media" | "baja";
 
 export interface Candidato {
   producto_empresa_id: string;
   nombre_oficial: string;
   codigo: string | null;
+  grupo: string | null;
   score: number;
   justificacion: string | null;
+}
+
+export interface ItemResolver {
+  texto: string;
+  unidad: string;
+  referencia: string;
 }
 
 export interface ResolucionItem {
   texto_proveedor: string;
   origen: OrigenResolucion;
+  nivel: NivelResolucion;
   confianza: number;
   candidatos: Candidato[];
 }
@@ -117,6 +142,35 @@ export async function abrirDocumentoOrden(ordenId: string): Promise<string | nul
     if (!res.ok) return await extraerDetalle(res, "No se pudo obtener el documento");
     const { url } = (await res.json()) as { url: string };
     window.open(url, "_blank", "noopener");
+    return null;
+  } catch {
+    return ERROR_CONEXION;
+  }
+}
+
+export type VarianteDocumento = "empresa" | "proveedor";
+
+/** Regenera y descarga el Excel de una orden en la variante indicada:
+ *  "empresa" imprime los nombres del catálogo; "proveedor" los nombres
+ *  originales de la cotización. El backend transmite el archivo (con la clave
+ *  API), así que se descarga como blob. Devuelve un mensaje de error, o null. */
+export async function descargarDocumentoOrden(
+  ordenId: string,
+  variante: VarianteDocumento,
+  nombreArchivo: string,
+): Promise<string | null> {
+  try {
+    const res = await fetchApi(`/ordenes/${ordenId}/descargar?variante=${variante}`);
+    if (!res.ok) return await extraerDetalle(res, "No se pudo descargar el documento");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    URL.revokeObjectURL(url);
     return null;
   } catch {
     return ERROR_CONEXION;
