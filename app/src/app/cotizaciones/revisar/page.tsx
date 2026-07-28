@@ -5,6 +5,11 @@
 // alias del proveedor al confirmar), agrega descuentos y completa los campos
 // manuales obligatorios antes de generar la orden. Los totales mostrados son
 // solo informativos: el backend los recalcula al generar la orden.
+//
+// El trabajo no es uniforme: de 55 ítems, la mayoría vienen de un alias ya
+// confirmado y solo unos pocos son decisiones reales. Por eso la pantalla tiene
+// tres momentos —resumen, revisión de los dudosos uno a uno, y cierre— con la
+// tabla completa siempre a un clic para quien prefiera verlo todo junto.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -22,8 +27,15 @@ import {
   Producto,
   Proveedor,
   RevisionPendiente,
+  TotalesExtraidos,
 } from "@/lib/api";
 import { limpiarPdfCotizacion, obtenerPdfCotizacion } from "@/lib/pdf-cotizacion";
+import { Aviso, Boton, Etiqueta, Tarjeta, Titulo } from "@/components/Tarjeta";
+import { Campo, claseCampo } from "@/components/Campo";
+import { BuscadorProducto } from "@/components/BuscadorProducto";
+import { ResumenCotizacion, type Conteos } from "@/components/ResumenCotizacion";
+import { TarjetaDecision } from "@/components/TarjetaDecision";
+import { Cabecera, Fila, Tabla, Td, Th } from "@/components/Tabla";
 
 interface ItemRevision {
   descripcion: string;
@@ -61,24 +73,16 @@ interface CamposOrden {
   descuentoGeneral: string; // default "0"
 }
 
-const CREAR_NUEVO = "__nuevo__";
-
-const ETIQUETA_ORIGEN: Record<OrigenResolucion, string> = {
-  alias: "Alias",
-  historico: "Histórico",
-  fuzzy: "Fuzzy",
-  gemini: "Gemini",
-  sin_match: "Sin match",
+/** De dónde salió la propuesta, dicho para alguien que no conoce el sistema. */
+const PROCEDENCIA: Record<OrigenResolucion, string> = {
+  alias: "Ya lo confirmaste antes para este proveedor",
+  historico: "Confirmado antes en otra cotización",
+  fuzzy: "Encontrado por parecido de nombre",
+  gemini: "Sugerido por el asistente",
+  sin_match: "No se encontró nada parecido",
 };
 
-// El color va por NIVEL de confianza, no por origen: lo que el usuario necesita
-// saber de un vistazo es a cuáles debe prestarles atención. Verde no significa
-// confirmado — confirmar sigue siendo siempre un clic suyo.
-const CLASE_NIVEL: Record<NivelResolucion, string> = {
-  alta: "bg-green-100 text-green-800",
-  media: "bg-amber-100 text-amber-900",
-  baja: "bg-red-100 text-red-800",
-};
+type Vista = "resumen" | "revision" | "tabla";
 
 function numeroDe(texto: string): number {
   const n = Number(texto);
@@ -89,6 +93,11 @@ export default function RevisarCotizacionPage() {
   const [estado, setEstado] = useState<"cargando" | "sin_datos" | "listo">("cargando");
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [advertencias, setAdvertencias] = useState<string[]>([]);
+  const [totalesPdf, setTotalesPdf] = useState<TotalesExtraidos>({
+    subtotal: 0,
+    iva: 0,
+    total: 0,
+  });
 
   const [proveedor, setProveedor] = useState<DatosProveedor>({
     nombre: "",
@@ -103,6 +112,10 @@ export default function RevisarCotizacionPage() {
   const [items, setItems] = useState<ItemRevision[]>([]);
   const [catalogo, setCatalogo] = useState<Producto[]>([]);
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null);
+
+  const [vista, setVista] = useState<Vista>("resumen");
+  const [posicionRevision, setPosicionRevision] = useState(0);
+  const [buscandoPara, setBuscandoPara] = useState<number | null>(null);
 
   // Creación de producto nuevo desde el selector de un ítem
   const [crearPara, setCrearPara] = useState<number | null>(null);
@@ -148,6 +161,7 @@ export default function RevisarCotizacionPage() {
 
     setNombreArchivo(revision.nombreArchivo);
     setAdvertencias(resolucion.advertencias);
+    setTotalesPdf(cotizacion.totales_pdf ?? { subtotal: 0, iva: 0, total: 0 });
     setProveedor({
       nombre: cotizacion.proveedor.nombre,
       nit: cotizacion.proveedor.nit,
@@ -225,36 +239,37 @@ export default function RevisarCotizacionPage() {
     // Eliminar reindexa la lista: se cierra el formulario de "crear producto"
     // para que no quede apuntando a otro ítem.
     setCrearPara(null);
+    setBuscandoPara(null);
     setItems((previos) => previos.filter((_, i) => i !== indice));
   }
 
+  function abrirCreacion(indice: number) {
+    const item = items[indice];
+    setNuevoProducto({ nombre: item.descripcion, unidad: item.unidad, tasaIva: "19" });
+    setErrorCrear(null);
+    setCrearPara(indice);
+  }
+
   function cambiarProducto(indice: number, valor: string) {
-    if (valor === CREAR_NUEVO) {
-      const item = items[indice];
-      setNuevoProducto({ nombre: item.descripcion, unidad: item.unidad, tasaIva: "19" });
-      setErrorCrear(null);
-      setCrearPara(indice);
-      return;
-    }
     actualizarItem(indice, { productoId: valor, confirmado: false, error: null });
   }
 
-  async function confirmarItem(indice: number) {
+  async function confirmarItem(indice: number): Promise<boolean> {
     const item = items[indice];
-    if (!item.productoId) return;
+    if (!item.productoId) return false;
 
     const nit = proveedor.nit.trim();
     if (!nit) {
       actualizarItem(indice, {
         error: "Ingresa el NIT del proveedor antes de confirmar (el alias se guarda por NIT).",
       });
-      return;
+      return false;
     }
 
     // Si el producto ya estaba guardado como alias exacto, no hay nada que aprender.
     if (item.origen === "alias" && item.productoId === item.aliasOriginalId) {
       actualizarItem(indice, { confirmado: true, error: null });
-      return;
+      return true;
     }
 
     actualizarItem(indice, { guardando: true, error: null });
@@ -276,7 +291,7 @@ export default function RevisarCotizacionPage() {
           guardando: false,
           error: await extraerDetalle(res, "Error al guardar el alias"),
         });
-        return;
+        return false;
       }
       actualizarItem(indice, {
         guardando: false,
@@ -286,8 +301,10 @@ export default function RevisarCotizacionPage() {
         nivel: "alta",
         confianza: 100,
       });
+      return true;
     } catch {
       actualizarItem(indice, { guardando: false, error: ERROR_CONEXION });
+      return false;
     }
   }
 
@@ -421,229 +438,259 @@ export default function RevisarCotizacionPage() {
     if (error) setErrorGenerar(error);
   }
 
-  const itemsIncluidos = items.filter((it) => it.incluir).length;
+  // --- Reparto del trabajo -----------------------------------------------------
+
+  const productoDe = (id: string) => catalogo.find((p) => p.id === id) ?? null;
+
+  /** Índices que aún necesitan una decisión del operador. */
+  const porDecidir = useMemo(
+    () => items.map((item, i) => ({ item, i })).filter(({ item }) => !item.confirmado),
+    [items],
+  );
+
+  const conteos: Conteos = useMemo(
+    () => ({
+      total: items.length,
+      yaConocidos: items.filter((it) => it.confirmado).length,
+      porRevisar: items.filter((it) => !it.confirmado && it.productoId).length,
+      sinEncontrar: items.filter((it) => !it.confirmado && !it.productoId).length,
+    }),
+    [items],
+  );
+
+  const sumaItems = useMemo(
+    () => items.reduce((suma, it) => suma + it.cantidad * it.valorUnitario, 0),
+    [items],
+  );
+
+  function avanzar() {
+    setPosicionRevision((p) => {
+      const siguiente = p + 1;
+      if (siguiente >= porDecidir.length) setVista("tabla");
+      return siguiente;
+    });
+  }
 
   // --- Render -------------------------------------------------------------------
 
   if (estado === "cargando") {
-    return <main className="p-8 text-sm text-gray-500">Cargando…</main>;
+    return <p className="py-10 text-cuerpo text-acero">Cargando…</p>;
   }
   if (estado === "sin_datos") {
     return (
-      <main className="p-8 max-w-3xl mx-auto flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Revisión de cotización</h1>
-        <p className="text-sm text-gray-600">
+      <div className="flex max-w-xl flex-col gap-4 py-6">
+        <Titulo>Revisión de cotización</Titulo>
+        <p className="text-cuerpo text-acero">
           No hay ninguna cotización en revisión. Sube primero el PDF de la cotización.
         </p>
-        <Link href="/cotizaciones" className="text-blue-600 hover:underline text-sm">
+        <Link href="/cotizaciones" className="text-cuerpo underline underline-offset-4">
           ← Subir cotización
         </Link>
-      </main>
+      </div>
     );
   }
 
-  const claseInput =
-    "rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-100 read-only:bg-gray-100";
-  const claseCelda = "px-3 py-2 border-b border-gray-100 align-top";
+  const enRevision = porDecidir[posicionRevision];
 
   return (
-    <main className="p-8 max-w-6xl mx-auto flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
+      {/* Encabezado: qué cotización es y de quién */}
       <div>
-        <Link href="/cotizaciones" className="text-sm text-blue-600 hover:underline">
-          ← Cotizaciones
-        </Link>
-        <h1 className="text-2xl font-semibold mt-2">Revisión de cotización</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Extraída de <span className="font-medium">{nombreArchivo}</span>. Confirma cada
-          ítem, completa los campos de la orden y genera el documento.
+        <Titulo>Revisión de cotización</Titulo>
+        <p className="mt-1 text-cuerpo text-acero">
+          {numeroCotizacion && (
+            <span className="font-mono text-tinta">{numeroCotizacion}</span>
+          )}
+          {numeroCotizacion && " · "}
+          {proveedor.nombre || "Proveedor sin nombre"}
+          {proveedor.nit && (
+            <>
+              {" · NIT "}
+              <span className="font-mono">{proveedor.nit}</span>
+            </>
+          )}
+          {" · "}
+          {proveedorExistente ? "Registrado" : "Nuevo — se creará al generar la orden"}
         </p>
+        <p className="mt-1 text-etiqueta text-acero">Extraída de {nombreArchivo}</p>
       </div>
 
       {advertencias.length > 0 && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-4">
-          <ul className="list-disc pl-5 text-sm text-amber-800">
-            {advertencias.map((a, i) => (
-              <li key={i}>{a}</li>
+        <Aviso tono="atencion" titulo="Avisos de la extracción">
+          <ul className="mt-1 list-disc pl-5">
+            {advertencias.map((advertencia, i) => (
+              <li key={i}>{advertencia}</li>
             ))}
           </ul>
-        </div>
+        </Aviso>
       )}
-      {errorGlobal && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-          {errorGlobal}
-        </div>
-      )}
+      {errorGlobal && <Aviso tono="error">{errorGlobal}</Aviso>}
 
-      {/* Proveedor y cotización */}
-      <section className="rounded border border-gray-200 p-4 flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold">Proveedor</h2>
-          <span
-            className={`rounded px-2 py-0.5 text-xs font-medium ${
-              proveedorExistente ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
-            }`}
-          >
-            {proveedorExistente ? "Registrado" : "Nuevo — se creará al generar la orden"}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            NIT *
-            <input
-              type="text"
-              value={proveedor.nit}
-              readOnly={proveedorExistente}
-              onChange={(e) => setProveedor({ ...proveedor, nit: e.target.value })}
-              onBlur={() => {
-                const nit = proveedor.nit.trim();
-                if (nit && nit !== nitVerificado) verificarNit(nit);
+      {/* Navegación entre los tres momentos */}
+      {vista !== "resumen" && (
+        <div className="flex flex-wrap gap-3">
+          <Boton variante="discreta" onClick={() => setVista("resumen")}>
+            ← Resumen
+          </Boton>
+          {vista !== "tabla" && (
+            <Boton variante="discreta" onClick={() => setVista("tabla")}>
+              Ver todos los ítems
+            </Boton>
+          )}
+          {vista !== "revision" && porDecidir.length > 0 && (
+            <Boton
+              variante="discreta"
+              onClick={() => {
+                setPosicionRevision(0);
+                setVista("revision");
               }}
-              className={claseInput}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Nombre *
-            <input
-              type="text"
-              value={proveedor.nombre}
-              readOnly={proveedorExistente}
-              onChange={(e) => setProveedor({ ...proveedor, nombre: e.target.value })}
-              className={claseInput}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Dirección
-            <input
-              type="text"
-              value={proveedor.direccion}
-              readOnly={proveedorExistente}
-              onChange={(e) => setProveedor({ ...proveedor, direccion: e.target.value })}
-              className={claseInput}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Ciudad
-            <input
-              type="text"
-              value={proveedor.ciudad}
-              readOnly={proveedorExistente}
-              onChange={(e) => setProveedor({ ...proveedor, ciudad: e.target.value })}
-              className={claseInput}
-            />
-          </label>
+            >
+              Revisar los {porDecidir.length} pendientes
+            </Boton>
+          )}
         </div>
-        <label className="flex flex-col gap-1 text-xs text-gray-600 max-w-xs">
-          Número de cotización
-          <input
-            type="text"
-            value={numeroCotizacion}
-            onChange={(e) => setNumeroCotizacion(e.target.value)}
-            className={claseInput}
-          />
-        </label>
-      </section>
+      )}
 
-      {/* Ítems */}
-      <section className="flex flex-col gap-3">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-sm font-semibold">Ítems</h2>
-          <span className="text-xs text-gray-500">
-            {itemsIncluidos === items.length
-              ? `${items.length}`
-              : `${itemsIncluidos} de ${items.length} seleccionados`}
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border border-gray-200">
-            <thead>
-              <tr className="bg-gray-50 text-left">
-                <th className={`${claseCelda} border-b-gray-200 w-12 text-center`}>Incl.</th>
-                <th className={`${claseCelda} border-b-gray-200`}>Descripción del proveedor</th>
-                <th className={`${claseCelda} border-b-gray-200 min-w-64`}>Producto oficial</th>
-                <th className={`${claseCelda} border-b-gray-200 w-24`}>Desc. %</th>
-                <th className={`${claseCelda} border-b-gray-200 w-32 text-right`}>Total ítem</th>
-                <th className={`${claseCelda} border-b-gray-200 w-40`}></th>
-              </tr>
-            </thead>
+      {vista === "resumen" && (
+        <ResumenCotizacion
+          conteos={conteos}
+          sumaItems={sumaItems}
+          totalesPdf={totalesPdf}
+          alRevisar={() => {
+            setPosicionRevision(0);
+            setVista("revision");
+          }}
+          alVerTodos={() => setVista("tabla")}
+        />
+      )}
+
+      {vista === "revision" &&
+        (enRevision ? (
+          <Tarjeta destacada className="p-6">
+            <TarjetaDecision
+              posicion={posicionRevision + 1}
+              total={porDecidir.length}
+              descripcion={enRevision.item.descripcion}
+              referencia={enRevision.item.referencia}
+              unidad={enRevision.item.unidad}
+              cantidad={enRevision.item.cantidad}
+              valorUnitario={enRevision.item.valorUnitario}
+              producto={productoDe(enRevision.item.productoId)}
+              procedencia={PROCEDENCIA[enRevision.item.origen]}
+              justificacion={enRevision.item.justificacion}
+              guardando={enRevision.item.guardando}
+              error={enRevision.item.error}
+              alConfirmar={async () => {
+                if (await confirmarItem(enRevision.i)) avanzar();
+              }}
+              alBuscarOtro={() => setBuscandoPara(enRevision.i)}
+              alOmitir={avanzar}
+            />
+          </Tarjeta>
+        ) : (
+          <Tarjeta className="p-6">
+            <Etiqueta>Revisión terminada</Etiqueta>
+            <p className="mt-2 text-item">No queda ningún ítem por decidir.</p>
+            <div className="mt-4">
+              <Boton variante="principal" grande onClick={() => setVista("tabla")}>
+                Ver todos los ítems
+              </Boton>
+            </div>
+          </Tarjeta>
+        ))}
+
+      {vista === "tabla" && (
+        <Tarjeta>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-acero-claro px-4 py-3">
+            <Etiqueta>
+              {items.filter((it) => it.incluir).length} de {items.length} ítems seleccionados
+            </Etiqueta>
+          </div>
+          <Tabla
+            descripcion="Ítems de la cotización con el producto del catálogo que les corresponde"
+            ancho="62rem"
+          >
+            <Cabecera>
+              <Th className="w-14">Incluir</Th>
+              <Th>Descripción del proveedor</Th>
+              <Th>Producto oficial</Th>
+              <Th className="w-32">Estado</Th>
+              <Th className="w-24" numerica>
+                Desc. %
+              </Th>
+              <Th className="w-36" numerica>
+                Total ítem
+              </Th>
+              <Th className="w-28" />
+            </Cabecera>
             <tbody>
               {items.map((item, i) => {
-                const etiqueta = ETIQUETA_ORIGEN[item.origen];
                 const descuento = Math.min(Math.max(numeroDe(item.descuento), 0), 100);
                 const totalItem = item.cantidad * item.valorUnitario * (1 - descuento / 100);
+                const producto = productoDe(item.productoId);
+
                 return (
-                  <tr
-                    key={i}
-                    className={
-                      !item.incluir
-                        ? "bg-gray-50 text-gray-400"
-                        : item.confirmado
-                          ? "bg-green-50/50"
-                          : ""
-                    }
-                  >
-                    <td className={`${claseCelda} text-center`}>
+                  <Fila key={i} atenuada={!item.incluir}>
+                    <Td className="text-center">
                       <input
                         type="checkbox"
                         checked={item.incluir}
                         onChange={(e) => actualizarItem(i, { incluir: e.target.checked })}
-                        title="Incluir este ítem en la orden"
-                        className="h-4 w-4 cursor-pointer"
+                        aria-label={`Incluir «${item.descripcion}» en la orden`}
+                        className="h-4 w-4 cursor-pointer accent-tinta"
                       />
-                    </td>
-                    <td className={claseCelda}>
+                    </Td>
+
+                    <Td>
                       <p>{item.descripcion}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {item.cantidad} {item.unidad || "und"} × {formatoCOP(item.valorUnitario)}
+                      <p className="mt-0.5 font-mono text-etiqueta text-acero">
+                        {item.cantidad} {item.unidad || "und"} ×{" "}
+                        {formatoCOP(item.valorUnitario)}
                       </p>
-                    </td>
-                    <td className={claseCelda}>
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={item.productoId}
-                            onChange={(e) => cambiarProducto(i, e.target.value)}
-                            className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                          >
-                            <option value="">— Sin resolver —</option>
-                            {catalogo.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.nombre_oficial}
-                                {p.codigo ? ` — ${p.codigo}` : ""}
-                              </option>
-                            ))}
-                            <option value={CREAR_NUEVO}>+ Crear producto nuevo…</option>
-                          </select>
-                          <span
-                            title={item.justificacion ?? undefined}
-                            className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${CLASE_NIVEL[item.nivel]}`}
-                          >
-                            {etiqueta}
-                            {item.origen !== "alias" && item.origen !== "sin_match"
-                              ? ` ${Math.round(item.confianza)}%`
-                              : ""}
-                          </span>
-                        </div>
-                        {item.candidatos.length > 1 && !item.confirmado && (
-                          <p className="text-xs text-gray-500">
-                            Alternativas:{" "}
-                            {item.candidatos.slice(1).map((c, j) => (
-                              <button
-                                key={c.producto_empresa_id}
-                                type="button"
-                                onClick={() => cambiarProducto(i, c.producto_empresa_id)}
-                                className="text-blue-600 hover:underline"
-                              >
-                                {j > 0 ? " · " : ""}
-                                {c.nombre_oficial}
-                                {c.codigo ? ` [${c.codigo}]` : ""} ({Math.round(c.score)}%)
-                              </button>
-                            ))}
-                          </p>
+                    </Td>
+
+                    <Td>
+                      <button
+                        type="button"
+                        onClick={() => setBuscandoPara(i)}
+                        className="w-full rounded-suave border border-acero-claro px-3 py-2 text-left hover:border-acero"
+                      >
+                        {producto ? (
+                          <>
+                            <span className="block">{producto.nombre_oficial}</span>
+                            <span className="mt-0.5 block font-mono text-etiqueta text-acero">
+                              {producto.codigo ?? "sin código"}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-acero">Buscar producto…</span>
                         )}
-                        {item.error && <p className="text-xs text-red-700">{item.error}</p>}
-                      </div>
-                    </td>
-                    <td className={claseCelda}>
+                      </button>
+                      {item.error && (
+                        <p role="alert" className="mt-1 text-etiqueta text-alto">
+                          {item.error}
+                        </p>
+                      )}
+                    </Td>
+
+                    <Td>
+                      {item.confirmado ? (
+                        <span className="text-listo">
+                          <span aria-hidden>✓ </span>Confirmado
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => confirmarItem(i)}
+                          disabled={!item.productoId || item.guardando}
+                          className="rounded-suave border border-atencion bg-atencion-fondo px-2 py-1 text-etiqueta font-medium text-tinta disabled:border-acero-claro disabled:bg-campo disabled:text-acero"
+                        >
+                          {item.guardando ? "Guardando…" : "Confirmar"}
+                        </button>
+                      )}
+                    </Td>
+
+                    <Td numerica>
                       <input
                         type="number"
                         min={0}
@@ -651,243 +698,267 @@ export default function RevisarCotizacionPage() {
                         step="any"
                         value={item.descuento}
                         onChange={(e) => actualizarItem(i, { descuento: e.target.value })}
-                        className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                        aria-label={`Descuento en porcentaje para «${item.descripcion}»`}
+                        className={`${claseCampo} py-1 text-right font-mono text-dato`}
                       />
-                    </td>
-                    <td className={`${claseCelda} text-right whitespace-nowrap`}>
+                    </Td>
+
+                    <Td numerica className="font-mono">
                       {formatoCOP(totalItem)}
-                    </td>
-                    <td className={claseCelda}>
-                      <div className="flex flex-col items-start gap-1">
-                        {item.confirmado ? (
-                          <span className="text-sm font-medium text-green-700">
-                            ✓ Confirmado
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => confirmarItem(i)}
-                            disabled={!item.productoId || item.guardando}
-                            className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {item.guardando ? "Guardando…" : "Confirmar"}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => eliminarItem(i)}
-                          className="text-xs text-red-600 hover:underline"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    </Td>
+
+                    <Td>
+                      <Boton variante="peligro" onClick={() => eliminarItem(i)}>
+                        Eliminar
+                      </Boton>
+                    </Td>
+                  </Fila>
                 );
               })}
             </tbody>
-          </table>
-        </div>
+          </Tabla>
+        </Tarjeta>
+      )}
 
-        {crearPara !== null && (
-          <form
-            onSubmit={crearProducto}
-            className="rounded border border-blue-200 bg-blue-50 p-4 flex flex-col gap-3"
-          >
-            <h3 className="text-sm font-semibold">
-              Crear producto nuevo para: “{items[crearPara]?.descripcion}”
-            </h3>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
+      {/* Alta de un producto que no está en el catálogo */}
+      {crearPara !== null && (
+        <Tarjeta destacada className="p-6">
+          <form onSubmit={crearProducto} className="flex flex-col gap-4">
+            <div>
+              <Etiqueta>Crear producto nuevo</Etiqueta>
+              <p className="mt-1 text-cuerpo">
+                Para: “{items[crearPara]?.descripcion}”
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Campo
+                etiqueta="Nombre oficial"
                 required
-                placeholder="Nombre oficial"
                 value={nuevoProducto.nombre}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, nombre: e.target.value })}
-                className={`${claseInput} flex-1 bg-white`}
               />
-              <input
-                type="text"
-                placeholder="Unidad"
+              <Campo
+                etiqueta="Unidad"
                 value={nuevoProducto.unidad}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, unidad: e.target.value })}
-                className={`${claseInput} w-full sm:w-32 bg-white`}
               />
-              <input
+              <Campo
+                etiqueta="IVA %"
                 type="number"
-                required
                 min={0}
                 max={100}
                 step="any"
-                title="Tasa de IVA por defecto (%)"
+                required
+                ayuda="Tasa de IVA por defecto (%)"
                 value={nuevoProducto.tasaIva}
                 onChange={(e) => setNuevoProducto({ ...nuevoProducto, tasaIva: e.target.value })}
-                className={`${claseInput} w-full sm:w-24 bg-white`}
               />
-              <button
+            </div>
+            {errorCrear && <Aviso tono="error">{errorCrear}</Aviso>}
+            <div className="flex gap-3">
+              <Boton
                 type="submit"
+                variante="principal"
                 disabled={creando || !nuevoProducto.nombre.trim()}
-                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {creando ? "Creando…" : "Crear y asignar"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCrearPara(null)}
-                className="rounded border border-gray-300 px-4 py-2 text-sm hover:bg-gray-100"
-              >
+              </Boton>
+              <Boton type="button" variante="discreta" onClick={() => setCrearPara(null)}>
                 Cancelar
-              </button>
+              </Boton>
             </div>
-            {errorCrear && <p className="text-sm text-red-700">{errorCrear}</p>}
           </form>
-        )}
-      </section>
+        </Tarjeta>
+      )}
 
-      {/* Campos manuales de la orden */}
-      <section className="rounded border border-gray-200 p-4 flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">Datos de la orden (obligatorios)</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Proyecto *
-            <input
-              type="text"
-              value={campos.proyecto}
-              onChange={(e) => setCampos({ ...campos, proyecto: e.target.value })}
-              className={claseInput}
+      {/* Datos del proveedor */}
+      <Tarjeta className="p-6">
+        <details open={!proveedorExistente}>
+          <summary className="cursor-pointer text-etiqueta font-semibold tracking-[0.06em] text-acero uppercase">
+            Datos del proveedor
+          </summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <Campo
+              etiqueta="NIT"
+              required
+              mono
+              value={proveedor.nit}
+              readOnly={proveedorExistente}
+              onChange={(e) => setProveedor({ ...proveedor, nit: e.target.value })}
+              onBlur={() => {
+                const nit = proveedor.nit.trim();
+                if (nit && nit !== nitVerificado) verificarNit(nit);
+              }}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Plazo de entrega *
-            <input
-              type="text"
-              value={campos.plazoEntrega}
-              onChange={(e) => setCampos({ ...campos, plazoEntrega: e.target.value })}
-              className={claseInput}
+            <Campo
+              etiqueta="Nombre"
+              required
+              value={proveedor.nombre}
+              readOnly={proveedorExistente}
+              onChange={(e) => setProveedor({ ...proveedor, nombre: e.target.value })}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Forma de pago *
-            <input
-              type="text"
-              value={campos.formaPago}
-              onChange={(e) => setCampos({ ...campos, formaPago: e.target.value })}
-              className={claseInput}
+            <Campo
+              etiqueta="Dirección"
+              value={proveedor.direccion}
+              readOnly={proveedorExistente}
+              onChange={(e) => setProveedor({ ...proveedor, direccion: e.target.value })}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Sitio de entrega *
-            <input
-              type="text"
-              value={campos.sitioEntrega}
-              onChange={(e) => setCampos({ ...campos, sitioEntrega: e.target.value })}
-              className={claseInput}
+            <Campo
+              etiqueta="Ciudad"
+              value={proveedor.ciudad}
+              readOnly={proveedorExistente}
+              onChange={(e) => setProveedor({ ...proveedor, ciudad: e.target.value })}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Tasa de IVA (%) *
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="any"
-              value={campos.tasaIva}
-              onChange={(e) => setCampos({ ...campos, tasaIva: e.target.value })}
-              className={claseInput}
+            <Campo
+              etiqueta="Número de cotización"
+              mono
+              value={numeroCotizacion}
+              onChange={(e) => setNumeroCotizacion(e.target.value)}
             />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
-            Descuento general (%)
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="any"
-              value={campos.descuentoGeneral}
-              onChange={(e) => setCampos({ ...campos, descuentoGeneral: e.target.value })}
-              className={claseInput}
-            />
-          </label>
+          </div>
+        </details>
+      </Tarjeta>
+
+      {/* Datos manuales de la orden */}
+      <Tarjeta className="p-6">
+        <Etiqueta>Datos de la orden (obligatorios)</Etiqueta>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Campo
+            etiqueta="Proyecto"
+            required
+            value={campos.proyecto}
+            onChange={(e) => setCampos({ ...campos, proyecto: e.target.value })}
+          />
+          <Campo
+            etiqueta="Plazo de entrega"
+            required
+            value={campos.plazoEntrega}
+            onChange={(e) => setCampos({ ...campos, plazoEntrega: e.target.value })}
+          />
+          <Campo
+            etiqueta="Forma de pago"
+            required
+            value={campos.formaPago}
+            onChange={(e) => setCampos({ ...campos, formaPago: e.target.value })}
+          />
+          <Campo
+            etiqueta="Sitio de entrega"
+            required
+            value={campos.sitioEntrega}
+            onChange={(e) => setCampos({ ...campos, sitioEntrega: e.target.value })}
+          />
+          <Campo
+            etiqueta="Tasa de IVA (%)"
+            type="number"
+            min={0}
+            max={100}
+            step="any"
+            required
+            mono
+            value={campos.tasaIva}
+            onChange={(e) => setCampos({ ...campos, tasaIva: e.target.value })}
+          />
+          <Campo
+            etiqueta="Descuento general (%)"
+            type="number"
+            min={0}
+            max={100}
+            step="any"
+            mono
+            value={campos.descuentoGeneral}
+            onChange={(e) => setCampos({ ...campos, descuentoGeneral: e.target.value })}
+          />
         </div>
-      </section>
+      </Tarjeta>
 
-      {/* Totales informativos */}
-      <section className="rounded border border-gray-200 p-4 sm:max-w-sm sm:ml-auto w-full">
-        <dl className="text-sm flex flex-col gap-1">
-          <div className="flex justify-between">
-            <dt className="text-gray-600">Subtotal (con desc. por ítem)</dt>
-            <dd>{formatoCOP(totales.subtotal)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-600">Descuento general</dt>
-            <dd>− {formatoCOP(totales.valorDescuento)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-600">Base IVA</dt>
-            <dd>{formatoCOP(totales.baseIva)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-600">IVA ({campos.tasaIva || 0}%)</dt>
-            <dd>{formatoCOP(totales.iva)}</dd>
-          </div>
-          <div className="flex justify-between font-semibold border-t border-gray-200 mt-1 pt-1">
-            <dt>Total</dt>
-            <dd>{formatoCOP(totales.total)}</dd>
-          </div>
-        </dl>
-        <p className="text-xs text-gray-500 mt-2">
-          Valores informativos: el sistema los recalcula al generar la orden.
-        </p>
-      </section>
-
-      {/* Generar */}
-      <section className="flex flex-col gap-3 items-end">
-        {pendientes.length > 0 && (
-          <ul className="text-xs text-gray-500 list-disc pl-5 self-end text-right list-inside">
-            {pendientes.map((p, i) => (
-              <li key={i}>{p}</li>
-            ))}
-          </ul>
-        )}
-        {!ordenGenerada && (
-          <button
-            type="button"
-            onClick={generarOrden}
-            disabled={pendientes.length > 0 || generando}
-            className="rounded bg-green-700 px-6 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {generando ? "Generando orden…" : "Generar orden"}
-          </button>
-        )}
-        {errorGenerar && (
-          <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-            {errorGenerar}
-          </p>
-        )}
-        {ordenGenerada && (
-          <div className="rounded border border-green-300 bg-green-50 p-4 text-sm text-green-800 flex flex-col gap-2 items-end">
-            <p>
-              Orden <span className="font-semibold">{ordenGenerada.numero_orden}</span>{" "}
-              generada por {formatoCOP(ordenGenerada.totales.total)}.
+      {/* Totales y generación */}
+      <Tarjeta className="p-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div>
+            <Etiqueta>Totales</Etiqueta>
+            <dl className="mt-3 flex flex-col gap-1.5 text-cuerpo">
+              <div className="flex justify-between gap-6">
+                <dt className="text-acero">Subtotal (con desc. por ítem)</dt>
+                <dd className="font-mono">{formatoCOP(totales.subtotal)}</dd>
+              </div>
+              <div className="flex justify-between gap-6">
+                <dt className="text-acero">Descuento general</dt>
+                <dd className="font-mono">− {formatoCOP(totales.valorDescuento)}</dd>
+              </div>
+              <div className="flex justify-between gap-6">
+                <dt className="text-acero">Base IVA</dt>
+                <dd className="font-mono">{formatoCOP(totales.baseIva)}</dd>
+              </div>
+              <div className="flex justify-between gap-6">
+                <dt className="text-acero">IVA ({campos.tasaIva || 0}%)</dt>
+                <dd className="font-mono">{formatoCOP(totales.iva)}</dd>
+              </div>
+              <div className="mt-1 flex justify-between gap-6 border-t border-acero-claro pt-2 text-item font-semibold">
+                <dt>Total</dt>
+                <dd className="font-mono">{formatoCOP(totales.total)}</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-etiqueta text-acero">
+              Valores informativos: el sistema los recalcula al generar la orden.
             </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={descargarDocumento}
-                className="rounded bg-green-700 px-4 py-2 text-xs font-semibold text-white hover:bg-green-800"
-              >
-                Descargar documento
-              </button>
-              <Link
-                href="/ordenes"
-                className="rounded border border-green-700 px-4 py-2 text-xs font-semibold text-green-800 hover:bg-green-100"
-              >
-                Ver historial
-              </Link>
-            </div>
           </div>
-        )}
-      </section>
-    </main>
+
+          <div className="flex flex-col gap-4">
+            {pendientes.length > 0 && (
+              <div>
+                <Etiqueta>Falta para poder generar</Etiqueta>
+                <ul className="mt-2 list-disc pl-5 text-cuerpo text-alto">
+                  {pendientes.map((falta) => (
+                    <li key={falta}>{falta}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {errorGenerar && <Aviso tono="error">{errorGenerar}</Aviso>}
+
+            {ordenGenerada ? (
+              <Aviso tono="listo" titulo={`Orden ${ordenGenerada.numero_orden} generada`}>
+                <p className="mt-1">
+                  Por {formatoCOP(ordenGenerada.totales.total)}.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3">
+                  <Boton variante="principal" onClick={descargarDocumento}>
+                    Descargar documento
+                  </Boton>
+                  <Link
+                    href="/ordenes"
+                    className="rounded-suave border border-acero-claro bg-papel px-4 py-2 text-cuerpo text-tinta hover:border-acero"
+                  >
+                    Ver historial
+                  </Link>
+                </div>
+              </Aviso>
+            ) : (
+              <div>
+                <Boton
+                  variante="principal"
+                  grande
+                  onClick={generarOrden}
+                  disabled={pendientes.length > 0 || generando}
+                >
+                  {generando ? "Generando orden…" : "Generar orden"}
+                </Boton>
+              </div>
+            )}
+          </div>
+        </div>
+      </Tarjeta>
+
+      {buscandoPara !== null && items[buscandoPara] && (
+        <BuscadorProducto
+          catalogo={catalogo}
+          textoProveedor={items[buscandoPara].descripcion}
+          alElegir={(productoId) => cambiarProducto(buscandoPara, productoId)}
+          alCerrar={() => setBuscandoPara(null)}
+          alCrearNuevo={() => abrirCreacion(buscandoPara)}
+        />
+      )}
+    </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   RevisionPendiente,
 } from "@/lib/api";
 import { guardarPdfCotizacion } from "@/lib/pdf-cotizacion";
+import { Aviso, Boton, Etiqueta, Tarjeta, Titulo } from "@/components/Tarjeta";
 
 type Fase = "extrayendo" | "resolviendo" | null;
 
@@ -83,41 +84,81 @@ export default function CotizacionesPage() {
     }
   }
 
+  // El proceso tarda: decir en qué paso va evita que se piense que se colgó.
+  const PASOS = [
+    { clave: "extrayendo", texto: "Leyendo el PDF" },
+    { clave: "resolviendo", texto: "Buscando cada ítem en el catálogo" },
+  ] as const;
+
   return (
-    <main className="p-8 max-w-3xl mx-auto flex flex-col gap-6">
+    <div className="flex max-w-3xl flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold">Nueva cotización</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Sube el PDF de la cotización del proveedor. El sistema extrae los ítems,
-          los reconcilia con el catálogo y te lleva a la pantalla de revisión.
+        <Titulo>Nueva cotización</Titulo>
+        <p className="mt-2 text-cuerpo text-acero">
+          Sube el PDF de la cotización del proveedor. El sistema extrae los ítems, los
+          reconcilia con el catálogo y te lleva a la pantalla de revisión.
         </p>
       </div>
 
-      <form onSubmit={manejarEnvio} className="flex flex-col sm:flex-row gap-3 items-start">
-        <input
-          type="file"
-          accept=".pdf,application/pdf"
-          onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
-          className="text-sm file:mr-3 file:rounded file:border-0 file:bg-gray-100 file:px-4 file:py-2 file:text-sm file:font-medium hover:file:bg-gray-200"
-        />
-        <button
-          type="submit"
-          disabled={!archivo || fase !== null}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {fase === "extrayendo"
-            ? "Extrayendo con Gemini…"
-            : fase === "resolviendo"
-              ? "Resolviendo productos…"
-              : "Procesar cotización"}
-        </button>
-      </form>
+      <Tarjeta className="p-6">
+        <form onSubmit={manejarEnvio} className="flex flex-col items-start gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="pdf-cotizacion"
+              className="text-etiqueta font-semibold tracking-[0.06em] text-acero uppercase"
+            >
+              Archivo PDF de la cotización
+            </label>
+            <input
+              id="pdf-cotizacion"
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+              className="text-cuerpo file:mr-3 file:rounded-suave file:border file:border-acero-claro file:bg-papel file:px-4 file:py-2 file:text-cuerpo file:text-tinta hover:file:border-acero"
+            />
+            {archivo && (
+              <p className="text-etiqueta text-acero">Listo para procesar: {archivo.name}</p>
+            )}
+          </div>
 
-      {error && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-          {error}
-        </div>
+          <Boton type="submit" variante="principal" grande disabled={!archivo || fase !== null}>
+            {fase === "extrayendo"
+              ? "Extrayendo con Gemini…"
+              : fase === "resolviendo"
+                ? "Resolviendo productos…"
+                : "Procesar cotización"}
+          </Boton>
+        </form>
+      </Tarjeta>
+
+      {fase !== null && (
+        <Tarjeta className="p-6">
+          <Etiqueta>Procesando</Etiqueta>
+          <ol className="mt-3 flex flex-col gap-2">
+            {PASOS.map((paso) => {
+              const hecho = fase === "resolviendo" && paso.clave === "extrayendo";
+              const enCurso = fase === paso.clave;
+              return (
+                <li
+                  key={paso.clave}
+                  className={`flex items-center gap-3 text-cuerpo ${
+                    hecho ? "text-listo" : enCurso ? "text-tinta" : "text-acero"
+                  }`}
+                >
+                  <span aria-hidden>{hecho ? "✓" : enCurso ? "→" : "·"}</span>
+                  {paso.texto}
+                  {enCurso && <span className="text-acero">…</span>}
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-3 text-etiqueta text-acero">
+            Puede tardar hasta un minuto según el tamaño de la cotización.
+          </p>
+        </Tarjeta>
       )}
-    </main>
+
+      {error && <Aviso tono="error">{error}</Aviso>}
+    </div>
   );
 }

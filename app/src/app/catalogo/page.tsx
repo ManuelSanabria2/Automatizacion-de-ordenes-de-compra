@@ -6,16 +6,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ERROR_CONEXION, extraerDetalle, fetchApi } from "@/lib/api";
-
-interface Producto {
-  id: string;
-  nombre_oficial: string;
-  codigo: string | null;
-  grupo: string | null;
-  unidad_default: string | null;
-  tasa_iva_default: number;
-}
+import { ERROR_CONEXION, extraerDetalle, fetchApi, type Producto } from "@/lib/api";
+import { Campo } from "@/components/Campo";
+import { Aviso, Boton, Etiqueta, Tarjeta, Titulo } from "@/components/Tarjeta";
+import { Cabecera, Fila, Tabla, Td, Th, Vacio } from "@/components/Tabla";
 
 interface FormularioProducto {
   nombre: string;
@@ -146,228 +140,216 @@ export default function CatalogoPage() {
     });
   }
 
-  const claseInput =
-    "rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none";
-  const claseInputFila = "w-full rounded border border-gray-300 px-2 py-1 text-sm";
+  const claseFila =
+    "w-full rounded-suave border border-acero-claro bg-papel px-2 py-1 text-dato focus:border-tinta";
 
   return (
-    <main className="p-8 max-w-4xl mx-auto flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Catálogo de productos</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Espejo del Excel «Requisición Abastecimientos»: mismo nombre, código y
-            grupo, con su unidad y tasa de IVA por defecto.
+          <Titulo>Catálogo de productos</Titulo>
+          <p className="mt-2 max-w-2xl text-cuerpo text-acero">
+            Espejo del Excel «Requisición Abastecimientos»: mismo nombre, código y grupo, con
+            su unidad y tasa de IVA por defecto.
           </p>
         </div>
         <Link
           href="/catalogo/importar"
-          className="shrink-0 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="shrink-0 rounded-suave border border-tinta bg-tinta px-4 py-2 text-cuerpo font-medium text-papel hover:bg-tinta/90"
         >
           Importar desde Excel
         </Link>
       </div>
 
-      <form onSubmit={manejarCrear} className="flex flex-col gap-3 rounded border border-gray-200 p-4">
-        <h2 className="text-sm font-semibold">Nuevo producto</h2>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            required
-            placeholder="Nombre oficial"
-            value={nuevo.nombre}
-            onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
-            className={`${claseInput} flex-1`}
-          />
-          <input
-            type="text"
-            placeholder="Código"
+      <Tarjeta className="p-6">
+        <form onSubmit={manejarCrear} className="flex flex-col gap-4">
+          <Etiqueta>Nuevo producto</Etiqueta>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="lg:col-span-2">
+            <Campo
+              etiqueta="Nombre oficial"
+              required
+              value={nuevo.nombre}
+              onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
+            />
+          </div>
+          <Campo
+            etiqueta="Código"
             value={nuevo.codigo}
             onChange={(e) => setNuevo({ ...nuevo, codigo: e.target.value })}
-            className={`${claseInput} w-full sm:w-36`}
           />
-          <input
-            type="text"
-            placeholder="Grupo"
+          <Campo
+            etiqueta="Grupo"
             value={nuevo.grupo}
             onChange={(e) => setNuevo({ ...nuevo, grupo: e.target.value })}
-            className={`${claseInput} w-full sm:w-44`}
           />
-          <input
-            type="text"
-            placeholder="Unidad"
+          <Campo
+            etiqueta="Unidad"
             value={nuevo.unidad}
             onChange={(e) => setNuevo({ ...nuevo, unidad: e.target.value })}
-            className={`${claseInput} w-full sm:w-32`}
           />
-          <input
+          <Campo
+            etiqueta="IVA %"
             type="number"
             required
             min={0}
             max={100}
             step="any"
-            placeholder="IVA %"
-            title="Tasa de IVA por defecto (%)"
+            ayuda="Tasa de IVA por defecto (%)"
             value={nuevo.tasaIva}
             onChange={(e) => setNuevo({ ...nuevo, tasaIva: e.target.value })}
-            className={`${claseInput} w-full sm:w-28`}
           />
-          <button
-            type="submit"
-            disabled={creando || !nuevo.nombre.trim()}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {creando ? "Creando…" : "Crear"}
-          </button>
         </div>
-        {errorCrear && (
-          <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-            {errorCrear}
-          </p>
-        )}
-      </form>
+          {errorCrear && <Aviso tono="error">{errorCrear}</Aviso>}
+          <div>
+            <Boton type="submit" variante="principal" disabled={creando || !nuevo.nombre.trim()}>
+              {creando ? "Creando…" : "Crear"}
+            </Boton>
+          </div>
+        </form>
+      </Tarjeta>
 
-      <input
-        type="search"
-        placeholder="Buscar por nombre o código…"
-        value={buscar}
-        onChange={(e) => setBuscar(e.target.value)}
-        className={claseInput}
-      />
+      <div className="max-w-md">
+        <Campo
+          etiqueta="Buscar por nombre o código"
+          type="search"
+          placeholder="Buscar por nombre o código…"
+          value={buscar}
+          onChange={(e) => setBuscar(e.target.value)}
+        />
+      </div>
 
-      {errorLista && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-          {errorLista}
-        </div>
-      )}
-      {errorEditar && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-          {errorEditar}
-        </div>
-      )}
+      {errorLista && <Aviso tono="error">{errorLista}</Aviso>}
+      {errorEditar && <Aviso tono="error">{errorEditar}</Aviso>}
 
       {cargando ? (
-        <p className="text-sm text-gray-500">Cargando…</p>
+        <p className="text-cuerpo text-acero">Cargando…</p>
       ) : productos.length === 0 && !errorLista ? (
-        <p className="text-sm text-gray-500">
-          {buscar.trim()
-            ? "Ningún producto coincide con la búsqueda."
-            : "El catálogo está vacío. Crea el primer producto arriba."}
-        </p>
+        <Tarjeta className="p-6">
+          <p className="text-cuerpo text-acero">
+            {buscar.trim()
+              ? "Ningún producto coincide con la búsqueda."
+              : "El catálogo está vacío. Crea el primer producto arriba."}
+          </p>
+        </Tarjeta>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border border-gray-200">
-            <thead>
-              <tr className="bg-gray-50 text-left">
-                <th className="px-4 py-2 border-b border-gray-200 w-36">Código</th>
-                <th className="px-4 py-2 border-b border-gray-200">Nombre oficial</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-52">Grupo</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-28">Unidad</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-24">IVA (%)</th>
-                <th className="px-4 py-2 border-b border-gray-200 w-44"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {productos.map((producto) =>
-                edicion?.id === producto.id ? (
-                  <tr key={producto.id} className="bg-blue-50">
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      <input
-                        type="text"
-                        value={edicion.codigo}
-                        onChange={(e) => setEdicion({ ...edicion, codigo: e.target.value })}
-                        className={claseInputFila}
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      <input
-                        type="text"
-                        required
-                        value={edicion.nombre}
-                        onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })}
-                        className={claseInputFila}
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      <input
-                        type="text"
-                        value={edicion.grupo}
-                        onChange={(e) => setEdicion({ ...edicion, grupo: e.target.value })}
-                        className={claseInputFila}
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      <input
-                        type="text"
-                        value={edicion.unidad}
-                        onChange={(e) => setEdicion({ ...edicion, unidad: e.target.value })}
-                        className={claseInputFila}
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      <input
-                        type="number"
-                        required
-                        min={0}
-                        max={100}
-                        step="any"
-                        value={edicion.tasaIva}
-                        onChange={(e) => setEdicion({ ...edicion, tasaIva: e.target.value })}
-                        className={claseInputFila}
-                      />
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={manejarGuardar}
-                        disabled={guardando || !edicion.nombre.trim()}
-                        className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {guardando ? "Guardando…" : "Guardar"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEdicion(null)}
-                        disabled={guardando}
-                        className="ml-2 rounded border border-gray-300 px-3 py-1 hover:bg-gray-100 disabled:opacity-50"
-                      >
-                        Cancelar
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={producto.id}>
-                    <td className="px-4 py-2 border-b border-gray-100 whitespace-nowrap">
-                      {producto.codigo ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      {producto.nombre_oficial}
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      {producto.grupo ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      {producto.unidad_default ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100">
-                      {producto.tasa_iva_default}
-                    </td>
-                    <td className="px-4 py-2 border-b border-gray-100 text-right">
-                      <button
-                        type="button"
-                        onClick={() => iniciarEdicion(producto)}
-                        className="text-blue-600 hover:underline"
-                      >
-                        Editar
-                      </button>
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Tarjeta>
+          <div className="border-b border-acero-claro px-4 py-3">
+            <Etiqueta>
+              {buscar.trim()
+                ? `${productos.length} coinciden con «${buscar.trim()}»`
+                : `${productos.length} productos en el catálogo`}
+            </Etiqueta>
+          </div>
+          <Tabla descripcion="Productos del catálogo oficial de la empresa" ancho="60rem">
+          <Cabecera>
+            <Th className="w-36">Código</Th>
+            <Th>Nombre oficial</Th>
+            <Th className="w-52">Grupo</Th>
+            <Th className="w-28">Unidad</Th>
+            <Th className="w-24" numerica>
+              IVA (%)
+            </Th>
+            <Th className="w-44" />
+          </Cabecera>
+          <tbody>
+            {productos.map((producto) =>
+              edicion?.id === producto.id ? (
+                <Fila key={producto.id} className="bg-campo">
+                  <Td>
+                    <input
+                      type="text"
+                      value={edicion.codigo}
+                      onChange={(e) => setEdicion({ ...edicion, codigo: e.target.value })}
+                      aria-label="Código"
+                      className={claseFila}
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      type="text"
+                      required
+                      value={edicion.nombre}
+                      onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })}
+                      aria-label="Nombre oficial"
+                      className={claseFila}
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      type="text"
+                      value={edicion.grupo}
+                      onChange={(e) => setEdicion({ ...edicion, grupo: e.target.value })}
+                      aria-label="Grupo"
+                      className={claseFila}
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      type="text"
+                      value={edicion.unidad}
+                      onChange={(e) => setEdicion({ ...edicion, unidad: e.target.value })}
+                      aria-label="Unidad"
+                      className={claseFila}
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      step="any"
+                      value={edicion.tasaIva}
+                      onChange={(e) => setEdicion({ ...edicion, tasaIva: e.target.value })}
+                      aria-label="IVA por defecto en porcentaje"
+                      className={`${claseFila} text-right`}
+                    />
+                  </Td>
+                  <Td className="whitespace-nowrap">
+                    <Boton
+                      variante="principal"
+                      onClick={manejarGuardar}
+                      disabled={guardando || !edicion.nombre.trim()}
+                    >
+                      {guardando ? "Guardando…" : "Guardar"}
+                    </Boton>
+                    <Boton
+                      className="ml-2"
+                      onClick={() => setEdicion(null)}
+                      disabled={guardando}
+                    >
+                      Cancelar
+                    </Boton>
+                  </Td>
+                </Fila>
+              ) : (
+                <Fila key={producto.id}>
+                  <Td className="font-mono whitespace-nowrap">
+                    {producto.codigo ?? <Vacio />}
+                  </Td>
+                  <Td>{producto.nombre_oficial}</Td>
+                  <Td className="text-acero">{producto.grupo ?? <Vacio />}</Td>
+                  <Td className="text-acero">{producto.unidad_default ?? <Vacio />}</Td>
+                  <Td numerica className="font-mono">
+                    {producto.tasa_iva_default}
+                  </Td>
+                  <Td className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => iniciarEdicion(producto)}
+                      className="text-cuerpo underline underline-offset-4"
+                    >
+                      Editar
+                    </button>
+                  </Td>
+                </Fila>
+              ),
+            )}
+          </tbody>
+          </Tabla>
+        </Tarjeta>
       )}
-    </main>
+    </div>
   );
 }

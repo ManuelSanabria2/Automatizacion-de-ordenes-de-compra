@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─────────────────────────────────────────────────────────────────────────────
+   Sistema «Verificación».
+
+   La referencia no es una consola: es el puesto de trabajo de una bodega. Un
+   campo gris acero —la mesa— y encima tarjetas blancas: el documento que se
+   está mirando ahora. La jerarquía la da la elevación, no las líneas, porque
+   quien opera esto no está entrenado en interfaces densas y necesita que lo
+   importante esté literalmente encima.
+
+   El ámbar viene de la señalización industrial —cinta de peligro, chaleco
+   reflectante— y significa aquí lo mismo que allí: esto requiere tu atención.
+   Nunca se usa como adorno.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-campo: #f4f6f7; /* la mesa */
+  --color-papel: #ffffff; /* el documento sobre la mesa */
+  --color-tinta: #14181c; /* casi negro con matiz frío */
+  --color-acero: #5c6b73; /* texto secundario */
+  --color-acero-claro: #cdd5d9; /* bordes, separadores */
+  --color-atencion: #e9a126; /* «esto te toca a ti» */
+  --color-atencion-fondo: #fdf5e6;
+  --color-listo: #0f6e56; /* confirmado */
+  --color-listo-fondo: #eaf3f0;
+  --color-alto: #b3261e; /* problema */
+  --color-alto-fondo: #fbeceb;
+
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  /* Un rol por tamaño, sin intermedios. 16px de base: esto se mira ocho horas
+     y el operador ronda los 50 años. */
+  --text-etiqueta: 0.8125rem; /* 13px — versalitas */
+  --text-cuerpo: 1rem; /* 16px */
+  --text-dato: 0.9375rem; /* 15px — celdas de tabla */
+  --text-item: 1.375rem; /* 22px — el ítem que se está decidiendo */
+  --text-titulo: 1.75rem; /* 28px */
+  --text-cifra: 2rem; /* 32px — las cuentas del resumen */
+
+  --radius-suave: 4px;
+
+  /* Elevación: mínima y de un solo paso. Una tarjeta está sobre la mesa, no
+     flotando. */
+  --shadow-tarjeta: 0 1px 2px rgb(20 24 28 / 0.06), 0 1px 1px rgb(20 24 28 / 0.04);
+  --shadow-foco: 0 4px 12px rgb(20 24 28 / 0.1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--color-campo);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--text-cuerpo);
+  line-height: 1.5;
+}
+
+/* Las cifras se comparan en columna: nunca deben bailar. */
+.tabular,
+table,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* El foco SIEMPRE se ve. */
+:focus-visible {
+  outline: 2px solid var(--color-tinta);
+  outline-offset: 2px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+::placeholder {
+  color: var(--color-acero);
+  opacity: 0.7;
+}
+
+::selection {
+  background: var(--color-tinta);
+  color: var(--color-papel);
+}
+
+/* Entre un ítem y el siguiente de la revisión. Es la única transición del
+   sistema con algo que decir: confirma que pasaste de página. */
+@keyframes entrar {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.entrar {
+  animation: entrar 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
