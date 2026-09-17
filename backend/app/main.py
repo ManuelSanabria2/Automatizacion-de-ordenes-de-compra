@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core import config
+from app.core.errores import CapturaErrores
 from app.core.seguridad import verificar_clave_api
 from app.routers import catalogo, extraccion, importacion, ordenes, proveedores
 
@@ -18,6 +19,11 @@ app = FastAPI(
     description="Extracción de cotizaciones (Gemini), importación de proveedores y generación de órdenes de compra.",
     version="0.1.0",
 )
+
+# OJO con el orden: el último middleware añadido es el más externo. La captura
+# de errores tiene que quedar POR DEBAJO del CORS para que sus respuestas 500
+# lleven cabeceras y el navegador muestre el error real, no un fallo de CORS.
+app.add_middleware(CapturaErrores)
 
 app.add_middleware(
     CORSMiddleware,
