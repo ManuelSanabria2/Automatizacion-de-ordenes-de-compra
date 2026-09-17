@@ -12,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from google.genai import errors as errores_gemini
 from postgrest.exceptions import APIError
 
+from app.core.gemini import CODIGOS_TRANSITORIOS
 from app.services.extraccion_cotizaciones import (
     CotizacionExtraida,
     ErrorRespuestaNoJSON,
@@ -27,6 +28,14 @@ router = APIRouter(prefix="/extraccion", tags=["extraccion"])
 
 # Límite de la API de Gemini para contenido enviado en línea (20 MB por request)
 TAMANO_MAXIMO_PDF = 20 * 1024 * 1024
+
+# Mensaje para el usuario final cuando Gemini está saturado o sin cuota: el
+# cliente no necesita saber el código HTTP, necesita saber que puede reintentar.
+MENSAJE_SATURACION = (
+    "El servicio de extracción está saturado en este momento y no respondió "
+    "tras varios reintentos. Vuelve a intentarlo en unos minutos: el PDF sigue "
+    "cargado, basta con pulsar de nuevo el botón de extraer."
+)
 
 
 @router.post("/extraer-cotizacion", response_model=CotizacionExtraida)
@@ -52,6 +61,12 @@ async def extraer_cotizacion_endpoint(
     except ErrorRespuestaNoJSON as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except errores_gemini.APIError as exc:
+        # 429/503: ya se agotaron los reintentos y los modelos de respaldo. Se
+        # devuelve 503 (no 502) para que quede claro que es temporal.
+        if exc.code in CODIGOS_TRANSITORIOS:
+            raise HTTPException(
+                status_code=503, detail=MENSAJE_SATURACION
+            ) from exc
         raise HTTPException(
             status_code=502, detail=f"Error de la API de Gemini: {exc.message}"
         ) from exc

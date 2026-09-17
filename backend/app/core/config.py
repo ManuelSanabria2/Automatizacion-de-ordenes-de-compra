@@ -12,6 +12,17 @@ SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 
+# Modelos a los que se cae si el principal responde "high demand" (503) o se
+# queda sin cuota (429). Se prueban en orden; rara vez están todos saturados
+# a la vez. Coma-separados; vacío = sin respaldo.
+GEMINI_MODELOS_RESPALDO: list[str] = [
+    modelo.strip()
+    for modelo in os.getenv(
+        "GEMINI_MODELOS_RESPALDO", "gemini-2.5-flash,gemini-2.0-flash"
+    ).split(",")
+    if modelo.strip()
+]
+
 # Matching de nombres de producto: score mínimo (0-100) del fuzzy matching
 # para aceptar candidatos sin recurrir a Gemini.
 UMBRAL_FUZZY: float = float(os.getenv("UMBRAL_FUZZY", "70"))
