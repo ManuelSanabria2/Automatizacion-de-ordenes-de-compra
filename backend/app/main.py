@@ -8,10 +8,12 @@ import logging
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core import config
-from app.core.errores import CapturaErrores
+from app.core.errores import MENSAJE_SIN_BASE_DE_DATOS, CapturaErrores
 from app.core.seguridad import verificar_clave_api
+from app.core.supabase import obtener_cliente
 from app.routers import catalogo, extraccion, importacion, ordenes, proveedores
 
 app = FastAPI(
@@ -52,3 +54,21 @@ app.include_router(proveedores.router, dependencies=_seguridad)
 @app.get("/health", tags=["salud"])
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/db", tags=["salud"])
+def health_db() -> JSONResponse:
+    """Consulta mínima a Supabase. La llama a diario el workflow
+    `.github/workflows/mantener-activo.yml`: el plan free de Supabase pausa el
+    proyecto tras 7 días sin actividad, y esta consulta cuenta como actividad.
+    Abierto como /health (no devuelve datos) para que el cron no necesite la
+    clave API. `def` síncrono: FastAPI lo corre en el threadpool."""
+    try:
+        obtener_cliente().table("proveedores").select("nit").limit(1).execute()
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("Health check de la base falló")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": MENSAJE_SIN_BASE_DE_DATOS},
+        )
+    return JSONResponse(content={"status": "ok"})

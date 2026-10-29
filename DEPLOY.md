@@ -103,7 +103,39 @@ ORIGENES_CORS=https://<tu-app>.vercel.app
 2. Flujo completo: sube un PDF de cotización en `/cotizaciones`, revisa los
    ítems, genera la orden y descárgala desde `/ordenes`.
 
+## Paso 5 — Evitar que Supabase se pause (keep-alive)
+
+El plan free de Supabase **pausa el proyecto tras 7 días sin actividad** y
+con eso se cae toda la app (el backend responde 503 "No hay conexión con la
+base de datos"). Para evitarlo, `.github/workflows/mantener-activo.yml` llama
+dos veces al día a `GET /health/db`, que hace una consulta real a Supabase.
+
+1. GitHub → el repositorio → Settings → **Secrets and variables → Actions**
+   → New repository secret: `URL_BACKEND` = URL de Render (sin barra final).
+2. Pestaña **Actions** → "Mantener activo" → **Run workflow** para probarlo
+   (debe terminar en verde con `{"status":"ok"}`).
+
+Si el job falla, GitHub envía un correo al dueño del repositorio: es la
+alerta temprana de que la base o el backend están caídos.
+
+> GitHub desactiva los workflows programados de un repositorio **público**
+> tras 60 días sin commits (avisa antes por correo). Si llega ese correo,
+> reactívalo desde la pestaña Actions con "Enable workflow".
+
+Verificación manual en cualquier momento:
+
+```bash
+curl https://<tu-servicio>.onrender.com/health/db
+# → {"status":"ok"}  ·  503 si Supabase no responde
+```
+
 ## Solución de problemas (casos reales del primer deploy)
+
+- **Toda la app falla con "No hay conexión con la base de datos" (503)**:
+  el proyecto de Supabase se pausó por inactividad. Panel de Supabase → el
+  proyecto → **Restore project** (tarda unos minutos; los datos se
+  conservan). Luego revisa que el workflow "Mantener activo" esté
+  habilitado y en verde (Paso 5).
 
 - **404 `NOT_FOUND` en todas las rutas de Vercel**: el proyecto se importó
   sin Root Directory y el Framework Preset quedó en "Other" (cambiar el

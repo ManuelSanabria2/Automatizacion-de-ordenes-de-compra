@@ -1,0 +1,40 @@
+# Evita que el proyecto de Supabase (plan free) se pause por inactividad.
+#
+# Supabase pausa los proyectos free tras 7 días sin actividad en la base, y
+# con eso se cae toda la app. Este cron llama a GET /health/db del backend,
+# que hace una consulta real a Supabase: cuenta como actividad, despierta de
+# paso el servicio de Render y verifica la cadena completa. Si falla, el job
+# queda en rojo y GitHub avisa por correo al dueño del repositorio.
+#
+# Requiere el secret URL_BACKEND (Settings → Secrets and variables → Actions)
+# con la URL de Render, sin barra final. Ver DEPLOY.md.
+
+name: Mantener activo
+
+on:
+  schedule:
+    # Dos veces al día (UTC). GitHub a veces retrasa u omite ejecuciones
+    # programadas; con dos diarias sobra margen frente a los 7 días.
+    - cron: "17 6 * * *"
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Consultar /health/db
+        env:
+          URL_BACKEND: ${{ secrets.URL_BACKEND }}
+        run: |
+          if [ -z "$URL_BACKEND" ]; then
+            echo "::error::Falta el secret URL_BACKEND"
+            exit 1
+          fi
+          # Reintentos generosos: el arranque en frío de Render free tarda
+          # ~50 s y mientras tanto responde 404/502.
+          curl --fail --silent --show-error \
+               --retry 6 --retry-delay 20 --retry-all-errors \
+               --max-time 90 \
+               "$URL_BACKEND/health/db"
